@@ -1,0 +1,25 @@
+{
+  "name": "ronet-docs",
+  "version": "1.0.0",
+  "private": true,
+  "description": "RoNetV4.1 documentation site (VitePress + Carbon theme)",
+  "scripts": {
+    "gen": "node ../gen.mjs",
+    "dev": "node scripts/switch.mjs carbon",
+    "switch": "node scripts/switch.mjs",
+    "switch:default": "node scripts/switch.mjs default",
+    "switch:dux": "node scripts/switch.mjs duxweb",
+    "build": "vitepress build",
+    "preview": "vitepress preview",
+    "deploy": "wrangler pages deploy .vitepress/dist --project-name ronet"
+  },
+  "devDependencies": {
+    "@duxweb/vitepress-theme": "^1.1.9",
+    "vitepress": "^1.6.4",
+    "vitepress-carbon": "^1.6.0",
+    "wrangler": "^4.135.0"
+  },
+  "allowScripts": {
+    "esbuild@0.21.5": true
+  }
+}

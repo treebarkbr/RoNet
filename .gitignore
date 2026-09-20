@@ -1,0 +1,14 @@
+# Luau CLI binaries (local toolchain)
+.tools/
+
+# Node / VitePress (docs site)
+node_modules/
+docs/vitepress/node_modules/
+docs/vitepress/.vitepress/dist/
+docs/vitepress/.vitepress/cache/
+docs/vitepress/.vitepress/.dev.log
+docs/vitepress/.vitepress/.dev.pid
+
+# OS / editor
+.DS_Store
+*.swp
