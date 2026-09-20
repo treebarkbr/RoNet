@@ -88,6 +88,10 @@ GELU (tanh approximation, as in GPT-2/J and most libs).
 
 C[i,j] = sum_k A[i,k] * B[k,j]  (2D only; use bmm for batches).
 
+#### `matmulFast(a: Tensor, b: Tensor) -> Tensor`
+
+Forward-only SIMD matmul (no autograd). Same result as matmul(a, b) but uses the Luau `vector` type so the K loop carries 3 lanes in one machine op under native codegen (SSE/AVX) and runs off packed 3-wide copies of B's column blocks. ~3x faster than the scalar kernel on large matrices in the interpreter and ~1.75x under --codegen. Semi-sparse/preallocating: keeps the output a dense 1..N array (fast array-part table, no boxed hash entries). Requires the `vector` library (present in the Luau CLI / native codegen); on runtimes without the library (e.g. Roblox) this falls back to Tensor.matmul.
+
 #### `bmm(a: Tensor, b: Tensor) -> Tensor`
 
 Batched matmul: [B, M, K] @ [B, K, N] -&gt; [B, M, N].

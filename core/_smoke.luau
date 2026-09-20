@@ -152,6 +152,27 @@ check("reshape", rshape.data[3] == 3)
 local tr = Tensor.transpose2d(arr)
 check("transpose", tr.shape[1] == 2 and tr.data[2] == 3)
 
+-- ---------------- SIMD fast matmul (forward parity with scalar) ----------------
+if rawget(_G, "vector") then
+	local nA, nB, nK = 9, 8, 7 -- deliberately not a multiple of 3 lanes / k
+	local Amat = Tensor.rand({ nA, nK })
+	local Bmat = Tensor.rand({ nK, nB })
+	local ct = Tensor.matmul(Amat, Bmat)
+	local cf = Tensor.matmulFast(Amat, Bmat)
+	check("matmulFast shape", cf.shape[1] == nA and cf.shape[2] == nB)
+	local worst = 0
+	local ad, bd = Amat.data, Bmat.data
+	for j = 1, nB do
+		for i = 1, nA do
+			local expect = 0
+			for kk = 1, nK do expect += ad[(i - 1) * nK + kk] * bd[(kk - 1) * nB + j] end
+			local rel = math.abs(cf.data[(i - 1) * nB + j] - expect)
+			if rel > worst then worst = rel end
+		end
+	end
+	check("matmulFast parity", worst < 1e-6)
+end
+
 if failures == 0 then
 	print("ALL CORE SMOKE TESTS PASSED")
 else

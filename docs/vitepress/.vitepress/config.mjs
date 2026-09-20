@@ -42,7 +42,13 @@ function sidebar() {
     files = fs.readdirSync(apiDir).filter((f) => f.endsWith('.md') && f !== 'index.md')
   } catch {}
   return [
-    { text: 'Guide', items: [{ text: 'Quick start', link: '/guide/quickstart' }] },
+    {
+      text: 'Guide',
+      items: [
+        { text: 'Quick start', link: '/guide/quickstart' },
+        { text: 'Roblox port', link: '/guide/roblox' },
+      ],
+    },
     ...groups.map((g) => ({
       text: g.name,
       collapsed: false,
@@ -68,6 +74,7 @@ const base = {
     logo: '/logo.svg',
     nav: [
       { text: 'Guide', link: '/guide/quickstart' },
+      { text: 'Roblox', link: '/guide/roblox' },
       { text: 'API', link: '/api/' },
     ],
     sidebar: sidebar(),

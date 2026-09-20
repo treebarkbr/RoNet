@@ -2,6 +2,8 @@
 -- RoNetV4.1 --!strict NN library.
 -- Root dependency-injection entry. This file is the single ENTRY script; only
 -- entry scripts may require(), so the DI graph is wired here exactly once.
+-- (Named RoNet.luau rather than init.luau because the stock Luau CLI/0.739
+-- resolver cannot require a module literally named "init".)
 -- @return deps: fully-wired module graph (Util, PRNG, Tensor, nn.*, models.*, loss.*)
 local Util = require("./core/Util")
 local PRNG = require("./core/PRNG")

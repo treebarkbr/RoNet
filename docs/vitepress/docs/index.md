@@ -27,6 +27,8 @@ interpreter with no external packages.
 
 - **[Quick start](/guide/quickstart)** walks through a small classifier and a
   tiny language model.
+- **[Roblox port](/guide/roblox)** explains the prebuilt `builds/RoNet.rbxm`
+  Model and how to use the library inside a Studio place.
 - **[API reference](/api/)** documents every module. The pages are generated
   from the doc comments in the source by `node docs/gen.mjs`.
 

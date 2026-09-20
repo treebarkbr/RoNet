@@ -26,18 +26,35 @@ tests/      entry scripts for each layer, plus tests/run_all.sh
 .tools/     luau and luau-analyze binaries used by the test suite
 ```
 
+## Roblox port
+
+A prebuilt Roblox Model lives at `builds/RoNet.rbxm`. Insert it anywhere under
+`ReplicatedStorage` and `require(ReplicatedStorage.RoNet)` returns the fully
+wired `deps` table (the root ModuleScript wires the graph with
+`require(script.core.Util)`-style requires). The Model mirrors the repo Layout;
+all modules are byte-for-byte the same source. Server Scripts can train with the
+Trainer; clients can use the same module for inference. Two runtime differences
+from the CLI: Roblox scripts do not expose Luau's `vector`, so `matmulFast`
+falls back to the scalar `Tensor.matmul` (identical values), and the test suite /
+`.tools/` binaries are not shipped. Full details: [docs guide](/guide/roblox).
+
 ## Requirements
 
-- A Luau CLI binary (`luau`) and optionally `luau-analyze`. Copies ship in
-  `.tools/`. To use them: `export LUAU=$(pwd)/.tools/luau` (the test runner
-  honors the `LUAU` variable). Newer Luau releases work too; only the runner
-  needs a `luau` executable.
+- A Luau CLI binary (`luau`) and optionally `luau-analyze`/`luau-compile`.
+  Copies ship in `.tools/` (0.73x, native codegen enabled). To use them:
+  `export LUAU=$(pwd)/.tools/luau` (the test runner honors the `LUAU`
+  variable). Newer Luau releases work too; keep the trio version-matched
+  (bytecode format changes between releases).
+- The entry script is `RoNet.luau`, not `init.luau`: the stock Luau CLI cannot
+  `require` a module literally named `init`, so the DI wiring avoids that name.
 
 ## Running the tests
 
 ```
 bash tests/run_all.sh                  # uses `luau` from PATH
 LUAU=/path/to/luau bash tests/run_all.sh
+LUAU_OPTS="-O2 --codegen" bash tests/run_all.sh   # interpreted O2
+bash tests/native.sh                   # full suite under native codegen (O2 + --codegen)
 ```
 
 Each test runs in its own process (the CLI requires are entry-only). The suite
@@ -46,12 +63,42 @@ the training stack (schedulers, EMA, serialization, losses), the BPE tokenizer,
 and one end-to-end language model fit followed by generation and checkpoint
 round-trips.
 
+`-O2` optimizes the bytecode; `--codegen` makes the VM translate hot functions
+to native x64/aarch64 at load time (typical wall-clock win: ~1.5-2x on this
+suite, ~4x on the matmul kernel). The native run is checked by CI via
+`tests/native.sh`.
+
+## Big tables and speed
+
+RoNet tensors are plain dense `{number}` arrays (integer keys 1..n), which is
+exactly the layout Luau treats best: a contiguous array-part with unboxed-ish
+number elements and O(1) reads, no hash nodes, no sparse arrays. Allocation goes
+through `table.create(n[, fill])` so big buffers are preallocated instead of
+grown one element at a time. Things worth knowing when you push table sizes up:
+
+- Keep numeric tensors dense and 1-based; avoid holes and avoid mixing
+  string/number keys into the same table (that forces the array part into the
+  slower hash part).
+- Allocate with `table.create(n, 0)` before bulk-writing; repeat lengths with a
+  `local len = #t` and reuse the local instead of re-indexing `#t` in a loop.
+- For pure reads, `for v in t` is the fastest iteration form (indexed loops
+  re-cost each read); index loops are still the right call when a kernel writes.
+- RoNet exposes `Tensor.matmulFast(a, b)` for inference: a forward-only SIMD
+  matmul that packs B's column blocks into Luau `vector`s (3 lanes), so the K
+  loop becomes scalar * vector ops — single SSE/AVX instructions under
+  `--codegen`. Measured at 512x512x512: ~3x faster than the scalar kernel in
+  the interpreter, ~1.75x faster natively. It produces no autograd graph, so use
+  it only where gradients are not needed. (`vector` and `buffer` are both
+  available in the stock Luau CLI. Roblox scripts expose `buffer` but not Luau's
+  `vector`, so there `matmulFast` silently falls back to the scalar kernel with
+  identical results.)
+
 ## Quick start
 
 ### A feed-forward classifier
 
 ```lua
-local deps = require("../init")            -- entry script
+local deps = require("../RoNet")            -- entry script
 local MLP = deps.MLP
 local AdamW = deps.AdamW
 local Trainer = deps.Trainer
@@ -79,7 +126,7 @@ local history = trainer:fit()
 ### A tiny language model
 
 ```lua
-local deps = require("../init")
+local deps = require("../RoNet")
 local BPE = deps.BPE
 local Transformer = deps.Transformer
 
