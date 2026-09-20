@@ -80,7 +80,10 @@ return function(deps: any)
 		K = Tensor.transpose(Tensor.reshape(K, { B, T, self.kv, hd }), 2, 3)
 		V = Tensor.transpose(Tensor.reshape(V, { B, T, self.kv, hd }), 2, 3)
 
-		if self.useRope and freqs and T <= freqs.cosT.shape[1] then
+		if self.useRope then
+			if not freqs then
+				error("Attention '" .. self.name .. "': RoPE enabled but no freq tables were passed", 2)
+			end
 			Q = RoPE.apply(Q, freqs)
 			K = RoPE.apply(K, freqs)
 		end

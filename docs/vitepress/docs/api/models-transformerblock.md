@@ -2,7 +2,7 @@
 
 Source: `models/TransformerBlock.luau`
 
-Pre-norm transformer block: h = x + SA(LN(x)); h = h + FFN(LN(h)).  Optional residual scaling: initType "rezero" (alpha=0) or "deepnorm"  (alpha = (2L)^(1/4) as in DeepNorm, 2203.00555).
+Pre-norm transformer block: h = x + SA(LN(x)); h = h + FFN(LN(h)).  Optional residual scaling: initType "rezero" (alpha=0, 2003.04887, gates the  branch) or "deepnorm" (DeepNorm 2203.00555, alpha = (2L)^(1/4) scales the  identity path: h = alpha*x + G(LN(x))).
 
 ## Methods
 

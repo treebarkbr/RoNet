@@ -1,7 +1,8 @@
 --!strict
 -- Pre-norm transformer block: h = x + SA(LN(x)); h = h + FFN(LN(h)).
--- Optional residual scaling: initType "rezero" (alpha=0) or "deepnorm"
--- (alpha = (2L)^(1/4) as in DeepNorm, 2203.00555).
+-- Optional residual scaling: initType "rezero" (alpha=0, 2003.04887, gates the
+-- branch) or "deepnorm" (DeepNorm 2203.00555, alpha = (2L)^(1/4) scales the
+-- identity path: h = alpha*x + G(LN(x))).
 return function(deps: any)
 	local Tensor = deps.Tensor
 	local Norm = deps.Norm
@@ -61,19 +62,26 @@ return function(deps: any)
 
 	function Block.forward(self: any, x: any, freqs: any?): any
 		local a1 = self.attn.forward(self.attn, self.norm1.forward(self.norm1, x), freqs)
+		local s = self.residualScale(self)
 		local h
 		if self.initType == "rezero" then
+			-- ReZero (2003.04887): gate the branch (alpha initialized to 0).
 			local alpha1 = Tensor.reshape(self.alpha1, onesLike(x))
 			h = Tensor.add(x, Tensor.mul(a1, alpha1))
+		elseif self.initType == "deepnorm" then
+			-- DeepNorm (2203.00555): scale the identity path, h = alpha*x + G(LN(x)).
+			h = Tensor.add(Tensor.mulScalar(x, s), a1)
 		else
-			h = Tensor.add(x, Tensor.mulScalar(a1, self.residualScale(self)))
+			h = Tensor.add(x, a1)
 		end
 		local a2 = self.ffn.forward(self.ffn, self.norm2.forward(self.norm2, h))
 		if self.initType == "rezero" then
 			local alpha2 = Tensor.reshape(self.alpha2, onesLike(h))
 			h = Tensor.add(h, Tensor.mul(a2, alpha2))
+		elseif self.initType == "deepnorm" then
+			h = Tensor.add(Tensor.mulScalar(h, s), a2)
 		else
-			h = Tensor.add(h, Tensor.mulScalar(a2, self.residualScale(self)))
+			h = Tensor.add(h, a2)
 		end
 		return h
 	end

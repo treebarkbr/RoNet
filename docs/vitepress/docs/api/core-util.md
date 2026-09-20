@@ -8,6 +8,8 @@ Util: small numeric + table helpers shared by RoNetV4.1.  Self-contained (no req
 
 #### `typeName(v: any) -> string`
 
+typeName(v): the Luau type name, or a table's metatable __name if present (lets library classes report meaningful names).
+
 #### `lerp(a: number, b: number, t: number) -> number`
 
 #### `clamp(v: number, lo: number, hi: number) -> number`

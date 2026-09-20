@@ -8,15 +8,16 @@ local math_min = math.min
 
 local Util = {}
 
-local TYPES: {[string]: string} = {
-	number = "number",
-	string = "string",
-	boolean = "boolean",
-}
-
+-- typeName(v): the Luau type name, or a table's metatable __name if present
+-- (lets library classes report meaningful names).
 function Util.typeName(v: any): string
 	local t = type(v)
-	return TYPES[t] and t or t
+	if t == "table" then
+		local mt = getmetatable(v)
+		local n = mt and mt.__name
+		if type(n) == "string" then return n end
+	end
+	return t
 end
 
 function Util.lerp(a: number, b: number, t: number): number
