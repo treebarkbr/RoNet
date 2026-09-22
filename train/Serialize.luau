@@ -1,6 +1,6 @@
 --!strict
 -- Weight serialization. Pure string round-trip (no filesystem in the Luau CLI),
--- so checkpoints are portable strings — feed them to real Roblox storage LATER.
+-- so checkpoints are portable strings, ready to feed into real Roblox storage later.
 -- Deterministic, compact, full precision (tostring(number)).
 --   snapshot(params)                       -> {shape, data} states (deep copy)
 --   dump(params)                           -> one string for the whole param list

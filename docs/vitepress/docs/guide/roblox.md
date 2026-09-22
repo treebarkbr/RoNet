@@ -2,7 +2,7 @@
 
 RoNet ships as a prebuilt Roblox Model, `builds/RoNet.rbxm`. Drag it into the
 Studio **Explorer** anywhere under `ReplicatedStorage` and you get the full
-library as ordinary ModuleScripts — same API, same `--!strict` modules, nothing
+library as ordinary ModuleScripts with the same API, same `--!strict` modules, nothing
 extra to install.
 
 ## Structure
@@ -11,7 +11,7 @@ The Model inserts one **ModuleScript** named `RoNet` plus child Folders:
 
 ```
 ReplicatedStorage/
-└── RoNet (ModuleScript — the DI root)
+└── RoNet (ModuleScript; the DI root)
     ├── core/    Util, PRNG, Tensor, Matrix, Parallel
     ├── nn/      Module, Inits, Linear, Activations, Norm, Dropout,
     │            Embedding, RoPE, Attention, FFN, Sequential
@@ -31,7 +31,7 @@ local RoNet = require(ReplicatedStorage.RoNet)
 
 returns the full `deps` table (`RoNet.Util`, `RoNet.Tensor`, `RoNet.MLP`,
 `RoNet.Trainer`, …). Because every ModuleScript can `require()` in Roblox, no
-factory indirection is lost — all modules stay identical to the CLI source.
+factory indirection is lost; all modules stay identical to the CLI source.
 
 ## Usage
 
@@ -67,8 +67,8 @@ drive `Transformer:generate()`.
 
 ## Parallel (multi-threaded) training
 
-`RoNet.Parallel` offloads the heavy ops — `forward`, `loss`, `backward`, and
-`scoreGenomes` — onto Roblox **Actor** sub-VMs. One mode selection governs the
+`RoNet.Parallel` offloads the heavy ops `forward`, `loss`, `backward`, and
+`scoreGenomes` onto Roblox **Actor** sub-VMs. One mode selection governs the
 whole library:
 
 ```lua
@@ -85,7 +85,7 @@ Parallel.setWorkers(4)            -- multi-mode shards the batch across N Actors
   one Script-backed Actor per worker, placed under `ReplicatedStorage` (move it
   with `Parallel.setParent(instance)`). Jobs are sent by value with
   `Actor:SendMessage`; results come back over a pool-owned `BindableEvent`.
-  Requires **Play mode** (Actors do not run in Edit) — get the mode with
+  Requires **Play mode** (Actors do not run in Edit); get the mode with
   `Parallel.available()`.
 - `setMode("auto")` resolves to `multi` on a Roblox runtime and falls back to
   `single` under the CLI.
@@ -111,8 +111,8 @@ h:shutdown()                                    -- disconnects pool state, destr
   worker scales its shard’s loss by its row count before `backward`, and the
   pool divides the summed gradients by the total row count.
 - Handle ops accept any lossName the engine does: `mse`, `bce`, `crossentropy`.
-- The parallel path is pure compute — no `require()`, no Instance mutation
-  inside worker jobs — so shards are deterministic.
+- The parallel path is pure compute: no `require()`, no Instance mutation
+  inside worker jobs, so shards are deterministic.
 
 ## Differences from the CLI build
 
@@ -129,7 +129,7 @@ h:shutdown()                                    -- disconnects pool state, destr
 
 `builds/RoNet.rbxm` is generated, not hand-assembled. `build/rbxm/` is a small
 Rust tool ([rbx-dom](https://github.com/rojo-rbx/rbx-dom): `rbx_dom_weak` +
-`rbx_binary`) that walks the repo exactly as the Model is laid out — the root
+`rbx_binary`) that walks the repo exactly as the Model is laid out: the root
 ModuleScript is `RoNet.luau` with each `require("./dir/Mod")` rewritten to
 `require(script.dir.Mod)`, one Folder per source directory, and one
 ModuleScript per `.luau` (files starting with `_` are skipped). To refresh the

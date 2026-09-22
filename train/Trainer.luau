@@ -1,7 +1,7 @@
 --!strict
 -- Tiny training loop engine. Batches are built as real leading-dim tensors so a
 -- whole minibatch is ONE forward, ONE backward, ONE optimizer step (single
--- autograd graph — the efficient path now that backward() accumulates per-call).
+-- autograd graph; the efficient path now that backward() accumulates per-call).
 --   t = Trainer.new({ model, optimizer, schedule?, lossFn, data, epochs,
 --                     batchSize?, evalFn?, evalEvery?, onEpochEnd? })
 --   t:fit() -> { lossHistory: {number}, evals: {number} }
