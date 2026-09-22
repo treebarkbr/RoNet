@@ -21,6 +21,7 @@ return function(deps: any): any
 		return v
 	end
 
+	-- Constant schedule: always returns 1.
 	function Scheduler.constant(): any
 		return function(_step: number): number
 			return 1
@@ -83,10 +84,12 @@ return function(deps: any): any
 	-- refreshable via setBase). Scheduled lr available as handle.lr.
 	function Scheduler.forOptimizer(opt: any, schedule: any): any
 		local h: any = { base = opt:getLr(), t = 0, lr = opt:getLr() }
+		-- Refresh the base lr the schedule scales.
 		function h.setBase(self: any, lr: number)
 			self.base = lr
 		end
 		h.t = 0
+		-- Advance one optimizer step: applies schedule(t) to the base lr.
 		function h.step(self: any): number
 			self.t += 1
 			self.lr = self.base * schedule(self.t)

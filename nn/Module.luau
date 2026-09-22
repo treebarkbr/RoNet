@@ -10,6 +10,8 @@ return function(deps: any): {
 	local Module = {}
 	Module.__index = Module
 
+	-- Create a bare container module (name optional). Add params/children with
+	-- addParam/addChild.
 	function Module.new(name: string?): any
 		local self = setmetatable({
 			name = name or "Module",
@@ -19,11 +21,13 @@ return function(deps: any): {
 		return self
 	end
 
+	-- Register a named parameter tensor; returns the tensor.
 	function Module.addParam(self: any, name: string, tensor: any): any
 		table.insert(self._params, { name = name, tensor = tensor })
 		return tensor
 	end
 
+	-- Register a named child module; returns the child.
 	function Module.addChild(self: any, name: string, child: any): any
 		self._children[name] = child
 		return child

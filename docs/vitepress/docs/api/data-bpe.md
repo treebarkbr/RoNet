@@ -12,21 +12,31 @@ Train: greedily merge the most frequent adjacent pair numMerges times. Returns t
 
 #### `new() -> any`
 
+An empty byte-level tokenizer (vocab 256, no merges). Useful for building a tokenizer by hand with addMerge.
+
 #### `addMerge(a: number, b: number) -> number`
 
 Add a single merge rule (a, b) -&gt; newId (manual extension; ids must be new).
 
 #### `vocabSize() -> number`
 
+Total vocabulary size (256 bytes + number of merge rules).
+
 #### `merges() -> { any }`
 
+Ordered list of merge rules {a, b} as applied during training.
+
 #### `piece(id: number) -> string`
+
+The byte string a token id decodes to.
 
 #### `encode(text: string) -> { number }`
 
 Encode: bytes -&gt; ids, then repeatedly apply merges in training order, each to exhaustion. Matches the training path, so trained text round-trips exactly.
 
 #### `decode(ids: { number }) -> string`
+
+Decode token ids back into a string.
 
 #### `state() -> any`
 

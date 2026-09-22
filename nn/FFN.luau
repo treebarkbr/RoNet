@@ -7,6 +7,7 @@ return function(deps: any)
 	local FFN = {}
 	FFN.__index = FFN
 
+	-- Create a SwiGLU FFN block [C -> hidden -> C].
 	function FFN.new(name: string, C: number, hidden: number, rng: any)
 		local self = setmetatable({ name = name, C = C, hidden = hidden }, FFN)
 		self.W1 = Tensor.fromData(Inits.glorotUniform({ C, hidden }, rng), { C, hidden }, true)
@@ -19,6 +20,7 @@ return function(deps: any)
 		return self
 	end
 
+	-- SwiGLU forward: W3(silu(W1 x) .* (W2 x)); flattens >2-D leading dims.
 	function FFN.forward(self: any, x: any): any
 		local nd = #x.shape
 		local worked = x

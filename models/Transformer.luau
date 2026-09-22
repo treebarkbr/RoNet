@@ -14,6 +14,9 @@ return function(deps: any)
 	local Transformer = {}
 	Transformer.__index = Transformer
 
+	-- Build a GPT-style decoder-only transformer. cfg fields:
+	-- { C, numBlocks, nbHeads, kvHeads, headDim, ffnHidden, vocab, maxSeq,
+	--   tieEmbeds?, dropoutP?, initType?, ropeBase? }.
 	function Transformer.new(name: string, cfg: any, rng: any)
 		local self: any = setmetatable({
 			name = name,
@@ -54,6 +57,7 @@ return function(deps: any)
 		return self
 	end
 
+	-- Single-sequence forward: ids {number} (1-based token ids) -> logits [T, vocab].
 	function Transformer.forward(self: any, ids: { number }): any
 		local x = self.emb.forward(self.emb, ids) -- [N, C]
 		x = Tensor.reshape(x, { 1, #ids, self.C })
@@ -86,11 +90,13 @@ return function(deps: any)
 		return Tensor.reshape(logits, { B, T, self.vocab })
 	end
 
+	-- Switch to eval mode (disables dropout); returns self for chaining.
 	function Transformer.eval(self): any
 		self.drop.training = false
 		return self
 	end
 
+	-- Switch to train mode (enables dropout); returns self for chaining.
 	function Transformer.train(self): any
 		self.drop.training = true
 		return self

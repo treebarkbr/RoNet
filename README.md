@@ -12,7 +12,8 @@ The whole codebase runs under the stock Luau CLI with no external packages.
 ## Layout
 
 ```
-core/       Util, PRNG, Tensor (autograd engine), Matrix (2D linear algebra)
+core/       Util, PRNG, Tensor (autograd engine), Matrix (2D linear algebra),
+            Parallel (Actor-pool sharding for forward/loss/backward/scoreGenomes)
 nn/         Module container, Linear, Inits, Activations, Norm, Dropout,
             Embedding, RoPE, Attention (causal, GQA), FFN (SwiGLU), Sequential
 models/     MLP, TransformerBlock (pre-norm, ReZero/DeepNorm options), Transformer
@@ -33,10 +34,14 @@ A prebuilt Roblox Model lives at `builds/RoNet.rbxm`. Insert it anywhere under
 wired `deps` table (the root ModuleScript wires the graph with
 `require(script.core.Util)`-style requires). The Model mirrors the repo Layout;
 all modules are byte-for-byte the same source. Server Scripts can train with the
-Trainer; clients can use the same module for inference. Two runtime differences
-from the CLI: Roblox scripts do not expose Luau's `vector`, so `matmulFast`
-falls back to the scalar `Tensor.matmul` (identical values), and the test suite /
-`.tools/` binaries are not shipped. Full details: [docs guide](/guide/roblox).
+Trainer; clients can use the same module for inference. `RoNet.Parallel` can
+shard `forward`/`loss`/`backward`/`scoreGenomes` across Roblox **Actor** sub-VMs
+in multi-mode (`Parallel.setMode("multi")`), with single-mode fallback for the
+CLI. Two runtime differences from the CLI: Roblox scripts do not expose Luau's
+`vector`, so `matmulFast` falls back to the scalar `Tensor.matmul` (identical
+values), and the test suite / `.tools/` binaries are not shipped. The artifact
+is built with `build/rbxm/` (a small rbx-dom Rust tool; no Studio needed), not
+hand-exported. Full details: [docs guide](/guide/roblox).
 
 ## Requirements
 
@@ -165,6 +170,15 @@ print(tok:decode(out))
   `zeroGrad`, `setLr/getLr`, `paramCount`, and `stateDict/loadStateDict`.
   Schedules attach with `Scheduler.forOptimizer(opt, schedule)` and are stepped
   once per batch.
+- **Parallel training.** `RoNet.Parallel` shards `forward`/`loss`/`backward`/
+  `scoreGenomes` across Roblox Actor sub-VMs. `Parallel.setMode("multi")`
+  rebuilds the batch across a worker pool and returns numbers identical to one
+  full-batch call (workers scale losses by shard row count; the pool divides
+  summed grads by total rows). `attach(model)` returns a handle with
+  `h:loss`/`h:backward`/`h:scoreGenomes`/`h:shutdown`; `backward` writes summed
+  gradients into the model so `optimizer:step()` works right after. `"single"`
+  (default) and `"auto"` run the same jobs in-process and are the only modes the
+  CLI can use. Multi-mode needs Play mode.
 
 ## Research references
 

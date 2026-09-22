@@ -8,5 +8,9 @@ Multi-head causal attention with RoPE and optional GQA (grouped query heads:  kv
 
 #### `new(name: string, C: number, nbHeads: number, kvHeads: number, headDim: number, rng: any, opts: any?)`
 
+Create a multi-head attention module. opts.causal (default true) and opts.rope (default true) toggle masking and rotary embeddings.
+
 #### `forward(: any, x: any, freqs: any?) -> any`
+
+Attention over x: [B, T, C] -&gt; [B, T, C]. Pass the RoPE.precompute result as freqs when the module has rope enabled.
 

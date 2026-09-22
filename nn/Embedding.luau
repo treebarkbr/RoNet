@@ -8,6 +8,7 @@ return function(deps: any)
 	local Embedding = {}
 	Embedding.__index = Embedding
 
+	-- Create a [vocab, dim] embedding table, N(0, 0.02) initialized.
 	function Embedding.new(name: string, vocab: number, dim: number, rng: any)
 		local self = setmetatable({ name = name, vocab = vocab, dim = dim }, Embedding)
 		self.table = Tensor.fromData(Inits.normal({ vocab, dim }, rng, 0, 0.02), { vocab, dim }, true)
@@ -16,6 +17,7 @@ return function(deps: any)
 		return self
 	end
 
+	-- Gather rows for a flat list of 1-based token ids; gradients scatter back.
 	function Embedding.forward(self: any, ids: { number }): any
 		return Tensor.gatherRows(self.table, ids)
 	end

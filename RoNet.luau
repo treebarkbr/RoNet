@@ -45,5 +45,6 @@ deps.Scheduler = require("./train/Scheduler")(deps)
 deps.EMA = require("./train/EMA")(deps)
 deps.Serialize = require("./train/Serialize")(deps)
 deps.Trainer = require("./train/Trainer")(deps)
+deps.Parallel = require("./core/Parallel")(deps)
 
 return deps

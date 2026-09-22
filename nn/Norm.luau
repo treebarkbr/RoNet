@@ -36,6 +36,7 @@ return function(deps: any)
 		return self
 	end
 
+	-- Normalize x over the last dim (RMSNorm by default; LayerNorm if op is "layer").
 	function Norm.forward(self: any, x: any): any
 		local nd = #x.shape
 		local lastDim = nd

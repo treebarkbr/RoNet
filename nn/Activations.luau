@@ -5,22 +5,27 @@ return function(deps: any)
 
 	local Activations = {}
 
+	-- ReLU (max(x, 0)).
 	function Activations.relu(x: any): any
 		return Tensor.relu(x)
 	end
 
+	-- SiLU / Swish.
 	function Activations.silu(x: any): any
 		return Tensor.silu(x)
 	end
 
+	-- GELU (tanh approximation).
 	function Activations.gelu(x: any): any
 		return Tensor.gelu(x)
 	end
 
+	-- Hyperbolic tangent.
 	function Activations.tanh(x: any): any
 		return Tensor.tanh(x)
 	end
 
+	-- Numerically stable sigmoid.
 	function Activations.sigmoid(x: any): any
 		return Tensor.sigmoid(x)
 	end

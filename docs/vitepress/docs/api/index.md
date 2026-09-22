@@ -20,6 +20,10 @@ regenerate this page and the module pages.
 
 - [Matrix](./core-matrix.md)
 
+## Core
+
+- [Parallel](./core-parallel.md)
+
 ## NN
 
 - [Module](./nn-module.md)

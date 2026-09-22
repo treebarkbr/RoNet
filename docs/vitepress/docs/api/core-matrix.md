@@ -12,15 +12,27 @@ matmul: A (ma x na) times B (mb x nb), requires na == mb.
 
 #### `trans(a: {number}, m: number, n: number) -> {number}`
 
+Transpose of an m x n flat matrix into an n x m one.
+
 #### `eye(n: number) -> {number}`
+
+n x n identity matrix (flat row-major).
 
 #### `fro(a: {number}) -> number`
 
+Frobenius norm (sqrt of sum of squares) of a flat array.
+
 #### `scale(a: {number}, s: number) -> {number}`
+
+Scalar multiply: returns a new flat array `a * s`.
 
 #### `copy(a: {number}) -> {number}`
 
+Copy of a flat array (element-wise clone).
+
 #### `zeros(n: number) -> {number}`
+
+Zeroed flat array of length n.
 
 #### `dot(a: {number}, b: {number}) -> number`
 

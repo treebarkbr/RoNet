@@ -123,6 +123,8 @@ local a = math.floor(bestKey / BASE)
 	return self
 end
 
+-- An empty byte-level tokenizer (vocab 256, no merges). Useful for building a
+-- tokenizer by hand with addMerge.
 function BPE.new(): any
 	local self: any = setmetatable({
 		mergeRules = {},
@@ -142,14 +144,17 @@ function BPE.addMerge(self, a: number, b: number): number
 	return newId
 end
 
+-- Total vocabulary size (256 bytes + number of merge rules).
 function BPE.vocabSize(self): number
 	return self.vocab
 end
 
+-- Ordered list of merge rules {a, b} as applied during training.
 function BPE.merges(self): { any }
 	return self.mergeRules
 end
 
+-- The byte string a token id decodes to.
 function BPE.piece(self, id: number): string
 	local p = self.pieces[id + 1]
 	if not p then error("BPE.piece: unknown id " .. tostring(id)) end
@@ -196,6 +201,7 @@ function BPE.encode(self, text: string): { number }
 	return toks
 end
 
+-- Decode token ids back into a string.
 function BPE.decode(self, ids: { number }): string
 	local chars: { string } = table.create(#ids)
 	for i = 1, #ids do chars[i] = self:piece(ids[i]) end

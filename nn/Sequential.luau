@@ -4,6 +4,8 @@
 return function(deps: any)
 	local Sequential = {}
 
+	-- Build a chain of layers. `build(rng)` returns the sub-layer list; every
+	-- sub-layer must respond to forward(x).
 	function Sequential.new(name: string, build: (any) -> { any }, rng: any)
 		local layers = build(rng)
 		local params = {}
@@ -21,6 +23,7 @@ return function(deps: any)
 		return setmetatable({ name = name, layers = layers, params = params }, Sequential)
 	end
 
+	-- Run the input through every layer in order.
 	function Sequential.forward(self: any, x: any): any
 		local out = x
 		for _, layer in self.layers do

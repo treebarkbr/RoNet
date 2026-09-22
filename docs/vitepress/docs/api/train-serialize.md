@@ -12,7 +12,11 @@ Snapshot current param values into an independent table of {shape, data}.
 
 #### `restore(params: { any }, snap: { any })`
 
+Restore param values in-place from a snapshot ({shape, data} list).
+
 #### `dump(params: { any }) -> string`
+
+Serialize the whole param list into one portable string.
 
 #### `parse(str: string) -> { any }`
 

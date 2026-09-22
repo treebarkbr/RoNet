@@ -14,6 +14,8 @@ Class: new(params: {Tensor}, lr: number, opts: {beta1?, beta2?, beta3?, alpha?, 
 
 #### `new(params: { any }, lr: number, opts: any?) -> any`
 
+Create the optimizer over `params` (Module.collectParams(model)) at a base learning rate.
+
 #### `alphaAt(: any, t: number) -> number`
 
 alpha(t): linear warmup from 0 to the final alpha over tFinal steps.
@@ -24,15 +26,29 @@ beta3(t): schedules the EMA half-life linearly (paper App. A.1), from betaStart 
 
 #### `step()`
 
+Apply one update from the current parameter gradients (call Tensor.backward() first).
+
 #### `zeroGrad()`
+
+Zero every parameter gradient buffer.
 
 #### `setLr(lr: number)`
 
+Set the current learning rate.
+
 #### `getLr() -> number`
+
+Return the current learning rate.
 
 #### `paramCount() -> number`
 
+Number of tracked parameters.
+
 #### `stateDict() -> any`
 
+Export optimizer state (moments, step counter) for checkpointing.
+
 #### `loadStateDict(st: any)`
+
+Restore optimizer state from a stateDict.
 

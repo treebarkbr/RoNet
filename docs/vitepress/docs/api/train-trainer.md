@@ -12,7 +12,11 @@ Build a single tensor from rows of equal-length numeric arrays.
 
 #### `new(cfg: any) -> any`
 
+Build the trainer from cfg ({model, optimizer, schedule?, lossFn, X, Y, epochs, batchSize?, evalFn?, evalEvery?, onEpochEnd?, featureShape?}).
+
 #### `fit() -> any`
+
+Run the full training loop; returns lossHistory, evals (see header).
 
 #### `evaluate(batchSize: number?) -> (number, number?)`
 

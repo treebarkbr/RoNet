@@ -17,6 +17,7 @@ return function(deps: any): any
 	local math_exp = math.exp
 	local math_log = math.log
 
+	-- Create the optimizer over `params` (Module.collectParams(model)) at a base learning rate.
 	function Optimizer.new(params: { any }, lr: number, opts: any?): any
 		local o = opts or {}
 		local self = setmetatable({
@@ -65,6 +66,7 @@ return function(deps: any): any
 		return math_min(math_exp(lnStart * lnEnd / denom), self.b3)
 	end
 
+	-- Apply one update from the current parameter gradients (call Tensor.backward() first).
 	function Optimizer.step(self)
 		self.t += 1
 		local t = self.t
@@ -95,6 +97,7 @@ return function(deps: any): any
 		end
 	end
 
+	-- Zero every parameter gradient buffer.
 	function Optimizer.zeroGrad(self)
 		for _, p in self.params do
 			if p.grad then
@@ -103,22 +106,27 @@ return function(deps: any): any
 		end
 	end
 
+	-- Set the current learning rate.
 	function Optimizer.setLr(self, lr: number)
 		self.lr = lr
 	end
 
+	-- Return the current learning rate.
 	function Optimizer.getLr(self): number
 		return self.lr
 	end
 
+	-- Number of tracked parameters.
 	function Optimizer.paramCount(self): number
 		return #self.params
 	end
 
+	-- Export optimizer state (moments, step counter) for checkpointing.
 	function Optimizer.stateDict(self): any
 		return { t = self.t, a = self.alpha, m1 = self.m1, m2 = self.m2, v = self.v }
 	end
 
+	-- Restore optimizer state from a stateDict.
 	function Optimizer.loadStateDict(self, st: any)
 		self.t = st.t
 		self.alpha = st.a

@@ -8,6 +8,7 @@ return function(deps: any)
 	local Linear = {}
 	Linear.__index = Linear
 
+	-- Create a fully-connected layer with Glorot-initialized W and zero b.
 	function Linear.new(name: string, fanIn: number, fanOut: number, rng: any)
 		local self = setmetatable({ name = name, input = fanIn, out = fanOut }, Linear)
 		self.W = Tensor.fromData(Inits.glorotUniform({ fanOut, fanIn }, rng), { fanOut, fanIn }, true)
@@ -18,6 +19,7 @@ return function(deps: any)
 		return self
 	end
 
+	-- Forward pass: y = x @ W^T + b. Reshapes automatically for >2-D leading dims.
 	function Linear.forward(self: any, x: any): any
 		local nd = #x.shape
 		local worked = x

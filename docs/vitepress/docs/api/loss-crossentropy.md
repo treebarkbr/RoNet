@@ -8,3 +8,5 @@ Numerically stable mean cross-entropy. logits: [N, vocab]; targets: N token ids 
 
 #### `crossEntropy(logits: any, targets: { number }, smooth: number?)`
 
+Mean cross-entropy over a batch of logits. Numerically stable via the log-sum-exp trick; optional label smoothing blends toward a uniform distribution. Returns a scalar tensor ready for backward().
+

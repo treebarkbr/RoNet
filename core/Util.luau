@@ -20,6 +20,7 @@ function Util.typeName(v: any): string
 	return t
 end
 
+-- Linear interpolation between a and b at t (t in [0,1]).
 function Util.lerp(a: number, b: number, t: number): number
 	return a + (b - a) * t
 end
@@ -43,14 +44,17 @@ function Util.fill<T>(n: number, value: T): {T}
 	return out
 end
 
+-- Array of n zeros.
 function Util.zeros(n: number): {number}
 	return Util.fill(n, 0)
 end
 
+-- Array of n ones.
 function Util.ones(n: number): {number}
 	return Util.fill(n, 1)
 end
 
+-- Shallow copy of an array (table.move).
 function Util.copyArray<T>(source: {T}): {T}
 	local n = #source
 	local out = table.create(n)
@@ -58,6 +62,7 @@ function Util.copyArray<T>(source: {T}): {T}
 	return out
 end
 
+-- Array `{1, 2, ..., n}`.
 function Util.range(n: number): {number}
 	local out = table.create(n)
 	for i = 1, n do out[i] = i end
@@ -79,6 +84,7 @@ function Util.argmax(arr: {number}): number
 	return best
 end
 
+-- Index of the minimum element.
 function Util.argmin(arr: {number}): number
 	local n = #arr
 	local best = 1
@@ -93,18 +99,21 @@ function Util.argmin(arr: {number}): number
 	return best
 end
 
+-- Sum of all elements in the array.
 function Util.sum(arr: {number}): number
 	local s = 0
 	for i = 1, #arr do s += arr[i] end
 	return s
 end
 
+-- Arithmetic mean of the array (0 for an empty array).
 function Util.mean(arr: {number}): number
 	local n = #arr
 	if n == 0 then return 0 end
 	return Util.sum(arr) / n
 end
 
+-- Population variance of the array (0 for fewer than 2 elements).
 function Util.variance(arr: {number}): number
 	local n = #arr
 	if n <= 1 then return 0 end
@@ -117,6 +126,8 @@ function Util.variance(arr: {number}): number
 	return s / n
 end
 
+-- Numerically stable softmax over a logits array. Writes into `out` when
+-- provided (reused buffers), otherwise returns a new array.
 function Util.softmax(logits: {number}, out: {number}?): {number}
 	local n = #logits
 	local dest = out or table.create(n)
@@ -153,6 +164,7 @@ function Util.sigmoid(x: number): number
 	end
 end
 
+-- Cheap tanh approximation via exp (-2x).
 function Util.tanhApprox(x: number): number
 	local e2 = math.exp(-2 * x)
 	return (1 - e2) / (1 + e2)
@@ -196,11 +208,13 @@ function Util.scaleInplace(arr: {number}, factor: number)
 	for i = 1, #arr do arr[i] *= factor end
 end
 
+-- In-place copy of source into dest; returns dest.
 function Util.copyInplace(dest: {number}, source: {number})
 	table.move(source, 1, #source, 1, dest)
 	return dest
 end
 
+-- Concatenate two arrays into a new one.
 function Util.concatTables<T>(a: {T}, b: {T}): {T}
 	local out = table.create(#a + #b)
 	table.move(a, 1, #a, 1, out)
@@ -208,6 +222,7 @@ function Util.concatTables<T>(a: {T}, b: {T}): {T}
 	return out
 end
 
+-- Round to the nearest multiple of `mult`.
 function Util.roundToMultiple(x: number, mult: number): number
 	return math_floor((x + mult / 2) / mult) * mult
 end
@@ -236,6 +251,7 @@ function Util.l2Norm(data: {number}): number
 	return math.sqrt(s)
 end
 
+-- Squared L2 norm (sum of squares) over a flat array.
 function Util.l2NormSq(data: {number}): number
 	local s = 0
 	for i = 1, #data do s += data[i] * data[i] end

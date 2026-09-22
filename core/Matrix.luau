@@ -19,6 +19,7 @@ function Matrix.mm(a: {number}, b: {number}, ma: number, na: number, mb: number,
 	return out
 end
 
+-- Transpose of an m x n flat matrix into an n x m one.
 function Matrix.trans(a: {number}, m: number, n: number): {number}
 	local out = table.create(m * n)
 	for i = 0, m - 1 do
@@ -29,30 +30,35 @@ function Matrix.trans(a: {number}, m: number, n: number): {number}
 	return out
 end
 
+-- n x n identity matrix (flat row-major).
 function Matrix.eye(n: number): {number}
 	local out = table.create(n * n, 0)
 	for i = 1, n do out[(i - 1) * n + i] = 1 end
 	return out
 end
 
+-- Frobenius norm (sqrt of sum of squares) of a flat array.
 function Matrix.fro(a: {number}): number
 	local s = 0
 	for i = 1, #a do s += a[i] * a[i] end
 	return math.sqrt(s)
 end
 
+-- Scalar multiply: returns a new flat array `a * s`.
 function Matrix.scale(a: {number}, s: number): {number}
 	local out = table.create(#a)
 	for i = 1, #a do out[i] = a[i] * s end
 	return out
 end
 
+-- Copy of a flat array (element-wise clone).
 function Matrix.copy(a: {number}): {number}
 	local out = table.create(#a)
 	for i = 1, #a do out[i] = a[i] end
 	return out
 end
 
+-- Zeroed flat array of length n.
 function Matrix.zeros(n: number): {number}
 	return table.create(n, 0)
 end

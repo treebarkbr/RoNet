@@ -22,6 +22,7 @@ return function(deps: any): any
 		return out
 	end
 
+	-- Restore param values in-place from a snapshot ({shape, data} list).
 	function Serialize.restore(params: { any }, snap: { any })
 		for i = 1, #params do
 			local target = params[i].data
@@ -42,6 +43,7 @@ return function(deps: any): any
 		return table.concat(parts)
 	end
 
+	-- Serialize the whole param list into one portable string.
 	function Serialize.dump(params: { any }): string
 		local lines: { string } = table.create(#params)
 		for i = 1, #params do

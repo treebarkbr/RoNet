@@ -8,5 +8,9 @@ Sequential container: chains sub-layers. Sub-layers are instantiated by the  bui
 
 #### `new(name: string, build: (any)`
 
+Build a chain of layers. `build(rng)` returns the sub-layer list; every sub-layer must respond to forward(x).
+
 #### `forward(: any, x: any) -> any`
+
+Run the input through every layer in order.
 

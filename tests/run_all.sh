@@ -8,7 +8,7 @@ cd "$(dirname "$0")/.."
 LUAU_CMD="${LUAU:-luau}"
 FAILED=0
 # shellcheck disable=SC2086 # deliberate word-splitting of LUAU_OPTS
-for t in RoNet.luau core/_smoke.luau tests/_smoke_layers.luau tests/_smoke_optim.luau tests/_smoke_train.luau tests/_smoke_bpe.luau tests/_smoke_lm.luau; do
+for t in RoNet.luau core/_smoke.luau tests/_smoke_layers.luau tests/_smoke_optim.luau tests/_smoke_train.luau tests/_smoke_bpe.luau tests/_smoke_lm.luau tests/_smoke_parallel.luau; do
 	if [ ! -f "$t" ]; then
 		continue
 	fi

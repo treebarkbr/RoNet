@@ -8,9 +8,15 @@ Container helpers for learnable modules.  Every RoNetV4.1 module is a dependency
 
 #### `new(name: string?) -> any`
 
+Create a bare container module (name optional). Add params/children with addParam/addChild.
+
 #### `addParam(: any, name: string, tensor: any) -> any`
 
+Register a named parameter tensor; returns the tensor.
+
 #### `addChild(: any, name: string, child: any) -> any`
+
+Register a named child module; returns the child.
 
 #### `collectParams(root: any) -> { any }`
 

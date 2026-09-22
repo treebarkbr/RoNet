@@ -7,6 +7,9 @@ return function(deps: any)
 	local MLP = {}
 	MLP.__index = MLP
 
+	-- Build an MLP with sizes = list of per-layer widths (no. of params: sizes),
+	-- e.g. {2, 16, 1}. opts.act is "relu" (default), "tanh", "silu", "gelu" or
+	-- "sigmoid" and applies between every pair of dense layers.
 	function MLP.new(name: string, sizes: { number }, rng: any, opts: any?)
 		local o = opts or {}
 		local actName = o.act or "relu"
@@ -24,6 +27,7 @@ return function(deps: any)
 		return self
 	end
 
+	-- Run the input through the layer chain in order.
 	function MLP.forward(self: any, x: any): any
 		local out = x
 		for _, layer in self.layers do
@@ -32,6 +36,7 @@ return function(deps: any)
 		return out
 	end
 
+	-- Flip train/eval mode on all sub-layers that track `training` (dropout).
 	function MLP.setTrain(self: any, train: boolean)
 		for _, layer in self.layers do
 			if layer.training ~= nil then layer.training = train end

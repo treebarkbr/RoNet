@@ -4,6 +4,9 @@
 return function(deps: any)
 	local Tensor = deps.Tensor
 
+	-- Mean cross-entropy over a batch of logits. Numerically stable via the
+	-- log-sum-exp trick; optional label smoothing blends toward a uniform
+	-- distribution. Returns a scalar tensor ready for backward().
 	local function crossEntropy(logits: any, targets: { number }, smooth: number?): any
 		local N = logits.shape[1]
 		local V = logits.shape[2]

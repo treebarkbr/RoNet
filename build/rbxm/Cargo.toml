@@ -1,0 +1,11 @@
+[package]
+name = "rbxm_build"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rbx_dom_weak = "4.2"
+rbx_binary = "3.0"
+
+[profile.release]
+opt-level = 2

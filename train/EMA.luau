@@ -9,6 +9,8 @@ return function(deps: any): any
 	local EMA = {}
 	EMA.__index = EMA
 
+	-- Create an EMA tracker over params at the given max decay (Polyak averaging).
+	-- opts.warmupSteps ramps the effective decay during the first steps.
 	function EMA.new(params: { any }, decay: number, opts: any?): any
 		local o = opts or {}
 		local self = setmetatable({
@@ -34,6 +36,7 @@ return function(deps: any): any
 		return self.maxDecay
 	end
 
+	-- Blend the buffers one step toward the current param values.
 	function EMA.update(self)
 		self.step += 1
 		local d = 1 - self:_decay()
@@ -47,6 +50,7 @@ return function(deps: any): any
 		end
 	end
 
+	-- Overwrite the model params with the averaged buffers.
 	function EMA.copyBack(self)
 		for _, p in self.params do
 			local b = self.buf[p]
@@ -57,6 +61,7 @@ return function(deps: any): any
 		end
 	end
 
+	-- Export averaged buffers (step + per-param {shape, data}) for checkpointing.
 	function EMA.stateDict(self): any
 		local out: { any } = {}
 		for i = 1, #self.params do
@@ -65,6 +70,7 @@ return function(deps: any): any
 		return { step = self.step, buffers = out }
 	end
 
+	-- Restore averaged buffers from a stateDict produced by ema:stateDict().
 	function EMA.loadStateDict(self, st: any)
 		self.step = st.step
 		for i = 1, #self.params do

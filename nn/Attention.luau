@@ -26,6 +26,8 @@ return function(deps: any)
 	local Attention = {}
 	Attention.__index = Attention
 
+	-- Create a multi-head attention module. opts.causal (default true) and
+	-- opts.rope (default true) toggle masking and rotary embeddings.
 	function Attention.new(name: string, C: number, nbHeads: number, kvHeads: number, headDim: number, rng: any, opts: any?)
 		local o = opts or {}
 		local self = setmetatable({
@@ -67,6 +69,8 @@ return function(deps: any)
 		return Tensor.cat(pieces, 2)
 	end
 
+	-- Attention over x: [B, T, C] -> [B, T, C]. Pass the RoPE.precompute result
+	-- as freqs when the module has rope enabled.
 	function Attention.forward(self: any, x: any, freqs: any?): any
 		local B, T = x.shape[1], x.shape[2]
 		local hd = self.hd

@@ -12,6 +12,9 @@ return function(deps: any)
 	local Block = {}
 	Block.__index = Block
 
+	-- Build a pre-norm transformer block. opts.initType: "default", "rezero"
+	-- (2003.04887, branch gated by a learnable alpha starting at 0) or "deepnorm"
+	-- (2203.00555, identity path scaled by (2L)^(1/4), opts.numBlocks = L).
 	function Block.new(name: string, C: number, nbHeads: number, kvHeads: number, headDim: number, ffnHidden: number, rng: any, opts: any?)
 		local o = opts or {}
 		local self: any = setmetatable({
@@ -47,6 +50,7 @@ return function(deps: any)
 		return self
 	end
 
+	-- Residual-path scale factor (1.0 default/rezero, (2L)^(1/4) deepnorm).
 	function Block.residualScale(self: any): number
 		if self.initType == "deepnorm" then
 			return (2 * self.L) ^ 0.25
@@ -60,6 +64,7 @@ return function(deps: any)
 		return s
 	end
 
+	-- h = x + SA(LN(x)); h = h + FFN(LN(h)); freqs passed through to attention.
 	function Block.forward(self: any, x: any, freqs: any?): any
 		local a1 = self.attn.forward(self.attn, self.norm1.forward(self.norm1, x), freqs)
 		local s = self.residualScale(self)

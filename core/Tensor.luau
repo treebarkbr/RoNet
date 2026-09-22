@@ -35,6 +35,9 @@ local defaultRng: RNG = {
 	nextGaussian = defaultGaussian,
 }
 
+-- Install the global RNG used by the randomizers (randn / rand / uniform)
+-- when no explicit RNG is passed. The root loader injects the PRNG here so
+-- every run stays reproducible.
 function Tensor.setRNG(rng: RNG)
 	defaultRng = rng
 end
@@ -104,6 +107,8 @@ end
 
 --- Constructors -----------------------------------------------------------------
 
+-- Create a tensor from a flat row-major data array and a shape. Errors if the
+-- element count does not match the shape. requiresGrad defaults to false.
 function Tensor.fromData(data: {number}, shape: {number}, requiresGrad: boolean?): Tensor
 	local n = sizeOf(shape)
 	if #data ~= n then
@@ -112,11 +117,13 @@ function Tensor.fromData(data: {number}, shape: {number}, requiresGrad: boolean?
 	return makeRawTensor(shape, copyData(data), requiresGrad == true, nil, "data")
 end
 
+-- Tensor filled with zeros of the given shape.
 function Tensor.zeros(shape: {number}, requiresGrad: boolean?): Tensor
 	local n = sizeOf(shape)
 	return makeRawTensor(shape, table.create(n, 0), requiresGrad == true, nil, "zeros")
 end
 
+-- Tensor filled with ones of the given shape.
 function Tensor.ones(shape: {number}, requiresGrad: boolean?): Tensor
 	local n = sizeOf(shape)
 	local data = table.create(n)
@@ -124,6 +131,7 @@ function Tensor.ones(shape: {number}, requiresGrad: boolean?): Tensor
 	return makeRawTensor(shape, data, requiresGrad == true, nil, "ones")
 end
 
+-- Tensor filled with a constant value.
 function Tensor.full(shape: {number}, value: number, requiresGrad: boolean?): Tensor
 	local n = sizeOf(shape)
 	local data = table.create(n)
@@ -131,10 +139,13 @@ function Tensor.full(shape: {number}, value: number, requiresGrad: boolean?): Te
 	return makeRawTensor(shape, data, requiresGrad == true, nil, "full")
 end
 
+-- 0-dim tensor (shape {}) holding a single value.
 function Tensor.scalar(value: number, requiresGrad: boolean?): Tensor
 	return makeRawTensor({}, { value }, requiresGrad == true, nil, "scalar")
 end
 
+-- Random tensor with standard-normal entries, drawn from the given RNG or the
+-- global default.
 function Tensor.randn(shape: {number}, rng: RNG?, requiresGrad: boolean?): Tensor
 	local r = rng or defaultRng
 	local n = sizeOf(shape)
@@ -143,6 +154,8 @@ function Tensor.randn(shape: {number}, rng: RNG?, requiresGrad: boolean?): Tenso
 	return makeRawTensor(shape, data, requiresGrad == true, nil, "randn")
 end
 
+-- Random tensor with uniform [0, 1) entries, drawn from the given RNG or the
+-- global default.
 function Tensor.rand(shape: {number}, rng: RNG?, requiresGrad: boolean?): Tensor
 	local r = rng or defaultRng
 	local n = sizeOf(shape)
@@ -151,6 +164,7 @@ function Tensor.rand(shape: {number}, rng: RNG?, requiresGrad: boolean?): Tensor
 	return makeRawTensor(shape, data, requiresGrad == true, nil, "rand")
 end
 
+-- Random tensor with uniform entries over [lo, hi).
 function Tensor.uniform(shape: {number}, lo: number, hi: number, rng: RNG?, requiresGrad: boolean?): Tensor
 	local r = rng or defaultRng
 	local span = hi - lo
@@ -162,18 +176,22 @@ end
 
 --- Methods ----------------------------------------------------------------------
 
+-- Number of elements (product of the shape dims).
 function Tensor.numel(t: Tensor): number
 	return #t.data
 end
 
+-- The tensor's shape array.
 function Tensor.shapeOf(t: Tensor): {number}
 	return t.shape
 end
 
+-- True when the tensor is 0-dim (shape {}).
 function Tensor.isScalar(t: Tensor): boolean
 	return #t.shape == 0
 end
 
+-- First data element as a number (for scalars and size-1 tensors).
 function Tensor.item(t: Tensor): number
 	return t.data[1]
 end
@@ -188,18 +206,22 @@ function Tensor.detach(t: Tensor): Tensor
 	return makeRawTensor(t.shape, t.data, false, nil, "detach")
 end
 
+-- The tensor's gradient buffer, allocating and attaching a zeroed buffer if
+-- none exists yet.
 function Tensor.ensureGrad(t: Tensor): {number}
 	local g = t.grad or table.create(#t.data, 0)
 	t.grad = g
 	return g
 end
 
+-- Zero the gradient buffer in place (no-op when the tensor has no grad).
 function Tensor.zeroGrad(t: Tensor)
 	if t.grad then
 		for i = 1, #t.grad do t.grad[i] = 0 end
 	end
 end
 
+-- The raw gradient array, or nil when the tensor has no gradient yet.
 function Tensor.gradData(t: Tensor): {number}?
 	return t.grad
 end
@@ -349,6 +371,7 @@ local function pointwiseBinary(a: Tensor, b: Tensor, opName: string, da: PwFn, d
 	return res
 end
 
+-- Elementwise addition with broadcasting.
 function Tensor.add(a: Tensor, b: Tensor): Tensor
 	return pointwiseBinary(a, b, "add",
 		function() return 1 end,
@@ -356,6 +379,7 @@ function Tensor.add(a: Tensor, b: Tensor): Tensor
 		function(av, bv) return av + bv end)
 end
 
+-- Elementwise subtraction with broadcasting.
 function Tensor.sub(a: Tensor, b: Tensor): Tensor
 	return pointwiseBinary(a, b, "sub",
 		function() return 1 end,
@@ -363,6 +387,7 @@ function Tensor.sub(a: Tensor, b: Tensor): Tensor
 		function(av, bv) return av - bv end)
 end
 
+-- Elementwise multiplication with broadcasting.
 function Tensor.mul(a: Tensor, b: Tensor): Tensor
 	return pointwiseBinary(a, b, "mul",
 		function(_, bv) return bv end,
@@ -370,6 +395,7 @@ function Tensor.mul(a: Tensor, b: Tensor): Tensor
 		function(av, bv) return av * bv end)
 end
 
+-- Elementwise division with broadcasting.
 function Tensor.div(a: Tensor, b: Tensor): Tensor
 	return pointwiseBinary(a, b, "div",
 		function(_, bv) return 1 / bv end,
@@ -377,18 +403,22 @@ function Tensor.div(a: Tensor, b: Tensor): Tensor
 		function(av, bv) return av / bv end)
 end
 
+-- Elementwise multiply by a scalar.
 function Tensor.mulScalar(a: Tensor, s: number): Tensor
 	return Tensor.mul(a, Tensor.scalar(s))
 end
 
+-- Elementwise add a scalar.
 function Tensor.addScalar(a: Tensor, s: number): Tensor
 	return Tensor.add(a, Tensor.scalar(s))
 end
 
+-- Elementwise negation.
 function Tensor.neg(a: Tensor): Tensor
 	return Tensor.mulScalar(a, -1)
 end
 
+-- Elementwise power by a scalar exponent p.
 function Tensor.pow(a: Tensor, p: number): Tensor
 	return pointwiseBinary(a, Tensor.scalar(p), "pow",
 		function(av) return p * (av ^ (p - 1)) end,
@@ -396,6 +426,7 @@ function Tensor.pow(a: Tensor, p: number): Tensor
 		function(av) return av ^ p end)
 end
 
+-- Elementwise exponential e^x.
 function Tensor.exp(a: Tensor): Tensor
 	return pointwiseBinary(a, Tensor.scalar(1), "exp",
 		function(av) return math_exp(av) end,
@@ -403,6 +434,7 @@ function Tensor.exp(a: Tensor): Tensor
 		function(av) return math_exp(av) end)
 end
 
+-- Elementwise natural log (input/derivative floored at 1e-12).
 function Tensor.log(a: Tensor): Tensor
 	return pointwiseBinary(a, Tensor.scalar(1), "log",
 		function(av) return 1 / math_max(av, 1e-12) end,
@@ -410,6 +442,7 @@ function Tensor.log(a: Tensor): Tensor
 		function(av) return math.log(math_max(av, 1e-12)) end)
 end
 
+-- Elementwise square root (input/derivative floored at 0/1e-12).
 function Tensor.sqrt(a: Tensor): Tensor
 	return pointwiseBinary(a, Tensor.scalar(1), "sqrt",
 		function(av) return 0.5 / math_sqrt(math_max(av, 1e-12)) end,
@@ -427,6 +460,7 @@ local function sigmoidValue(x: number): number
 	end
 end
 
+-- Elementwise tanh.
 function Tensor.tanh(a: Tensor): Tensor
 	return pointwiseBinary(a, Tensor.scalar(1), "tanh",
 		function(av)
@@ -437,6 +471,7 @@ function Tensor.tanh(a: Tensor): Tensor
 		function(av) return math.tanh(av) end)
 end
 
+-- Elementwise sigmoid (numerically stable).
 function Tensor.sigmoid(a: Tensor): Tensor
 	return pointwiseBinary(a, Tensor.scalar(1), "sigmoid",
 		function(av)
@@ -447,6 +482,7 @@ function Tensor.sigmoid(a: Tensor): Tensor
 		function(av) return sigmoidValue(av) end)
 end
 
+-- Elementwise ReLU (max(x, 0)).
 function Tensor.relu(a: Tensor): Tensor
 	return pointwiseBinary(a, Tensor.scalar(1), "relu",
 		function(av) return if av > 0 then 1 else 0 end,
@@ -482,6 +518,7 @@ function Tensor.gelu(a: Tensor): Tensor
 		end)
 end
 
+-- Elementwise clamp into [lo, hi].
 function Tensor.clip(a: Tensor, lo: number, hi: number): Tensor
 	return pointwiseBinary(a, Tensor.scalar(1), "clip",
 		function(av) return if av > lo and av < hi then 1 else 0 end,
@@ -676,6 +713,7 @@ end
 
 --- Reshape / transpose ---------------------------------------------------------
 
+-- View with a new shape (size must match); shares data, preserves requiresGrad.
 function Tensor.reshape(t: Tensor, newShape: {number}): Tensor
 	local newSize = sizeOf(newShape)
 	if newSize ~= #t.data then
@@ -1150,6 +1188,7 @@ function Tensor.sliceDim(t: Tensor, dim: number, index: number): Tensor
 	return res
 end
 
+-- Slice index along the last dim; shorthand for sliceDim(t, #t.shape, index).
 function Tensor.selectLastDim(t: Tensor, index: number): Tensor
 	return Tensor.sliceDim(t, #t.shape, index)
 end

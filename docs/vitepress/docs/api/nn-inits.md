@@ -8,11 +8,19 @@ Parameter initializers. Each returns a flat row-major data array for a shape.  I
 
 #### `zeros(shape: { number }) -> { number }`
 
+Zeroed data array for a shape.
+
 #### `ones(shape: { number }) -> { number }`
+
+All-ones data array for a shape.
 
 #### `normal(shape: { number }, rng: any, mean: number?, std: number?) -> { number }`
 
+Gaussian draws, N(mean or 0, std or 0.02).
+
 #### `uniform(shape: { number }, rng: any, lo: number?, hi: number?) -> { number }`
+
+Uniform draws over [lo or -0.05, hi or 0.05).
 
 #### `glorotUniform(shape: { number }, rng: any) -> { number }`
 

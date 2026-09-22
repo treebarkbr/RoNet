@@ -16,7 +16,7 @@ const ROOT = path.resolve(import.meta.dirname, '..')
 const OUT_DIR = path.join(ROOT, 'docs', 'vitepress', 'docs', 'api')
 
 const PACKAGES = [
-  { name: 'Core', dir: 'core', files: ['Util', 'PRNG', 'Tensor', 'Matrix'] },
+  { name: 'Core', dir: 'core', files: ['Util', 'PRNG', 'Tensor', 'Matrix', 'Parallel'] },
   { name: 'NN', dir: 'nn', files: ['Module', 'Inits', 'Linear', 'Activations', 'Norm', 'Dropout', 'Embedding', 'RoPE', 'Attention', 'FFN', 'Sequential'] },
   { name: 'Models', dir: 'models', files: ['MLP', 'TransformerBlock', 'Transformer'] },
   { name: 'Loss', dir: 'loss', files: ['CrossEntropy', 'Losses'] },
@@ -124,7 +124,7 @@ function collectLocalFunctions(lines) {
 }
 
 // Finds the public helpers a factory returns, e.g. `return { crossEntropy = crossEntropy }`.
-function factoryExpose(lines, localFns) {
+function factoryExpose(lines, localFns, localDocs) {
   const exposed = []
   let start = -1
   let startCol = 0
@@ -156,7 +156,7 @@ function factoryExpose(lines, localFns) {
   }
   if (!closed) return exposed
   for (const m of chunk.matchAll(/(\w+)\s*=\s*(\w+)/g)) {
-    if (localFns[m[2]]) exposed.push({ name: m[1], args: localFns[m[2]] })
+    if (localFns[m[2]]) exposed.push({ name: m[1], args: localFns[m[2]], doc: (localDocs && localDocs[m[2]]) || '' })
   }
   return exposed
 }
@@ -170,6 +170,7 @@ function renderModule(rel, name) {
   const seenClasses = []
   const classOf = {}
   let pending = []
+  const localDocs = {}
 
   for (const line of lines) {
     const t = stripComment(line)
@@ -184,15 +185,18 @@ function renderModule(rel, name) {
         seenClasses.push(m.cls)
       }
       methods.push({ cls: m.cls, sig: m.sig, doc: pending.join(' ') })
+    } else {
+      const lm = line.match(/^\s*local function\s+(\w+)/)
+      if (lm) localDocs[lm[1]] = pending.join(' ')
     }
     pending = []
   }
 
   const localFns = collectLocalFunctions(lines)
-  for (const ex of factoryExpose(lines, localFns)) {
+  for (const ex of factoryExpose(lines, localFns, localDocs)) {
     let args = ex.args || ''
     if (args.startsWith('(') && args.endsWith(')')) args = args.slice(1, -1)
-    methods.push({ cls: null, sig: `${ex.name}(${args})`, doc: '' })
+    methods.push({ cls: null, sig: `${ex.name}(${args})`, doc: ex.doc || '' })
   }
 
   const md = []

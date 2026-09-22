@@ -33,6 +33,8 @@ return function(deps: any)
 		return Tensor.fromData(flat, shape, false)
 	end
 
+	-- Build the trainer from cfg ({model, optimizer, schedule?, lossFn, X, Y,
+	-- epochs, batchSize?, evalFn?, evalEvery?, onEpochEnd?, featureShape?}).
 	function Trainer.new(cfg: any): any
 		local feature = cfg.featureShape or { #cfg.X[1] }
 		local self = setmetatable({
@@ -55,6 +57,7 @@ return function(deps: any)
 		return self
 	end
 
+	-- Run the full training loop; returns lossHistory, evals (see header).
 	function Trainer.fit(self): any
 		local N = #self.X
 		local bs = self.batchSize

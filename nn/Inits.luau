@@ -14,18 +14,21 @@ end
 		return d
 	end
 
+	-- Zeroed data array for a shape.
 	function Inits.zeros(shape: { number }): { number }
 		local n = 1
 		for _, s in shape do n *= s end
 		return zerosData(n)
 	end
 
+	-- All-ones data array for a shape.
 	function Inits.ones(shape: { number }): { number }
 		local n = 1
 		for _, s in shape do n *= s end
 		return fillData(n, 1)
 	end
 
+	-- Gaussian draws, N(mean or 0, std or 0.02).
 	function Inits.normal(shape: { number }, rng: any, mean: number?, std: number?): { number }
 		local n = 1
 		for _, s in shape do n *= s end
@@ -38,6 +41,7 @@ end
 		return d
 	end
 
+	-- Uniform draws over [lo or -0.05, hi or 0.05).
 	function Inits.uniform(shape: { number }, rng: any, lo: number?, hi: number?): { number }
 		local n = 1
 		for _, s in shape do n *= s end

@@ -10,6 +10,8 @@ Learning-rate schedules. Each schedule is a pure function  `(step: number) -&gt;
 
 #### `constant() -> any`
 
+Constant schedule: always returns 1.
+
 #### `warmupLinear(warmup: number, total: number, minFactor: number?) -> any`
 
 Linear warmup for [1, warmup], then linear decay 1 -&gt; minFactor over [warmup, total], clipped at minFactor (cooldown = total - warmup).
@@ -34,5 +36,9 @@ Attach a schedule to an optimizer: returns { step(), setBase(lr), getLr() }. ste
 
 #### `setBase(: any, lr: number)`
 
+Refresh the base lr the schedule scales.
+
 #### `step(: any) -> number`
+
+Advance one optimizer step: applies schedule(t) to the base lr.
 

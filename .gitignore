@@ -12,3 +12,6 @@ docs/vitepress/.vitepress/.dev.pid
 # OS / editor
 .DS_Store
 *.swp
+
+# Rust build artifact (rbxm generator)
+build/rbxm/target/

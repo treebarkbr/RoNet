@@ -64,17 +64,21 @@ export type PRNGInstance = {
 	clone: () -> PRNGInstance,
 }
 
+-- Construct a seedable PRNG instance. Same seed => same stream (reproducible
+-- runs). Defaults to seed 1.
 function PRNG.new(seed: number?): PRNGInstance
 	local self: any = setmetatable({ state = seedState(seed or 1) }, { __index = {} })
 
 	local gaussCache: number? = nil
 
+	-- Next integer from the Park-Miller LCG, in [0, PM_MOD-2].
 	function self.next()
 		local s = self.state
 		s.pm = pmNext(s.pm)
 		return s.pm - 1 -- [0, PM_MOD-2]
 	end
 
+	-- Uniform float in [0, 1) (Wichmann-Hill combined LCG).
 	function self.nextFloat()
 		local s = self.state
 		s.x = (171 * s.x) % 30269
@@ -85,6 +89,7 @@ function PRNG.new(seed: number?): PRNGInstance
 		return r
 	end
 
+	-- Uniform integer in [1, hi] or [lo, hi] (bounds normalized if swapped).
 	function self.nextInt(lo: any, hi: any)
 		if hi == nil then
 			hi = lo
@@ -97,6 +102,7 @@ function PRNG.new(seed: number?): PRNGInstance
 		return l + floor(self.nextFloat() * span)
 	end
 
+	-- Standard-normal draw via Box-Muller (caches every second sample).
 	function self.nextGaussian()
 		if gaussCache ~= nil then
 			local v = gaussCache
@@ -111,11 +117,13 @@ function PRNG.new(seed: number?): PRNGInstance
 		return mag * math.cos(2 * math.pi * u2)
 	end
 
+	-- Re-seed the generator; the stream restarts deterministically.
 	function self.seed(s: number)
 		self.state = seedState(s)
 		gaussCache = nil
 	end
 
+	-- Independent copy with an identical state (same next draws).
 	function self.clone()
 		local c = PRNG.new(1)
 		local os = self.state
@@ -141,6 +149,9 @@ end
 local STREAMS: {[string]: PRNGInstance} = {}
 PRNG._streams = STREAMS
 
+-- Get the named component stream, creating it (seeded from its name hash or
+-- the given seed) on first use. Lets independent parts of the graph draw from
+-- fully disjoint, stable streams.
 function PRNG.stream(name: string, seed: number?): PRNGInstance
 	local s = STREAMS[name]
 	if not s then
