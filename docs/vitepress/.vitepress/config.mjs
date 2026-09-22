@@ -67,6 +67,7 @@ const base = {
   title: 'RoNetV4.1',
   description: 'A modular neural network library for Luau',
   lang: 'en-US',
+  head: [['link', { rel: 'icon', href: '/logo.svg', type: 'image/svg+xml' }]],
   srcDir: 'docs',
   cleanUrls: true,
   lastUpdated: true,
