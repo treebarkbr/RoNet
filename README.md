@@ -78,6 +78,15 @@ model against an independent numpy forward pass, and a tiny random checkpoint
 (`tests/_smoke_pt.luau`). Requirements: python3 + numpy. Full reference and a
 config mapping table: [PyTorch import guide](/guide/ptimport).
 
+Set expectations honestly: RoNet is a single-process Luau library with no GPU
+path, so 2B/4B/7B+ checkpoints are not a realistic target. A 7B model is tens of
+gigabytes of weights on disk, millions of weights in one source file, and far
+beyond reachable memory once that source, the forward graph, and the logits all
+live in one interpreter. The converter is aimed at small and tiny models (a few
+million parameters), distilled checkpoints, and studying the internals of a big
+model layer by layer. For real serving of large models, use the original
+PyTorch implementation.
+
 ## Requirements
 
 - A Luau CLI binary (`luau`) and optionally `luau-analyze`/`luau-compile`.

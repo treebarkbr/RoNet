@@ -114,6 +114,27 @@ written once and the trailing embedding line is omitted, matching how
   1-based; Hugging Face conventions are 0-based, so shift your tokenizer's
   vocab when packing prompts (the known/unused-token positions differ).
 
+## Realistic scale
+
+To be clear about what this is for: RoNet runs in one Luau process on a CPU,
+with no GPU path. A 2B/4B/7B+ checkpoint is not something it will ever serve,
+and pretending otherwise wastes a lot of RAM and disk:
+
+- A 7B-parameter model is roughly 28 GB of float32 weights before you touch
+  activations. Hugging Face ships those as sharded `safetensors` files; a
+  single `model.safetensors` of that size cannot even be opened by this
+  converter, whose `Serialize` string embeds every weight.
+- Even if the weights could be read, the emitted module would be a source file
+  with hundreds of millions of numbers, and the interpreter would then hold the
+  weight string, the parsed weight tensors, the forward graph, and the logits
+  in the same address space.
+
+Treat the importer as a tool for the scale the library actually runs: models of
+a few million parameters, checkpoints distilled or pruned down to that size,
+and studying the internals of a bigger model one block at a time. If your
+workload genuinely needs a large Llama/Mistral model, run it in PyTorch with
+the intended serving stack, not here.
+
 ## Verification
 
 The import path is checked two ways, both independent of the RoNet runtime:
