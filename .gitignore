@@ -15,3 +15,7 @@ docs/vitepress/.vitepress/.dev.pid
 
 # Rust build artifact (rbxm generator)
 build/rbxm/target/
+
+# Python
+__pycache__/
+*.pyc

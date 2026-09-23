@@ -2,13 +2,13 @@
 
 Source: `models/Transformer.luau`
 
-Decoder-only Transformer (GPT-style). Config fields:  { C, numBlocks, nbHeads, kvHeads, headDim, ffnHidden, vocab, maxSeq, tieEmbeds, dropoutP, initType }  forward(ids: {number}) -&gt; logits [N, vocab] consistent with the last block.
+Decoder-only Transformer (GPT-style). Config fields:  { C, numBlocks, nbHeads, kvHeads, headDim, ffnHidden, vocab, maxSeq, tieEmbeds, dropoutP, initType, ropeBase?, rmsEps? }  forward(ids: {number}) -&gt; logits [N, vocab] consistent with the last block.
 
 ## Methods
 
 #### `new(name: string, cfg: any, rng: any)`
 
-Build a GPT-style decoder-only transformer. cfg fields: { C, numBlocks, nbHeads, kvHeads, headDim, ffnHidden, vocab, maxSeq,   tieEmbeds?, dropoutP?, initType?, ropeBase? }.
+Build a GPT-style decoder-only transformer. cfg fields: { C, numBlocks, nbHeads, kvHeads, headDim, ffnHidden, vocab, maxSeq,   tieEmbeds?, dropoutP?, initType?, ropeBase?, rmsEps? }.
 
 #### `forward(: any, ids: { number }) -> any`
 

@@ -17,18 +17,20 @@ return function(deps: any)
 	-- (2203.00555, identity path scaled by (2L)^(1/4), opts.numBlocks = L).
 	function Block.new(name: string, C: number, nbHeads: number, kvHeads: number, headDim: number, ffnHidden: number, rng: any, opts: any?)
 		local o = opts or {}
+		local rmsEps = o.rmsEps or 1e-6
 		local self: any = setmetatable({
 			name = name,
 			C = C,
 			layers = {},
 			initType = o.initType or "default", -- "default" | "rezero" | "deepnorm"
 			L = o.numBlocks or 1,
+			rmsEps = rmsEps,
 			params = {},
 		}, Block)
 
-		self.norm1 = Norm.new(name .. "/norm1", C, rng, "rms", 1e-6)
+		self.norm1 = Norm.new(name .. "/norm1", C, rng, "rms", rmsEps)
 		self.attn = Attention.new(name .. "/attn", C, nbHeads, kvHeads or nbHeads, headDim, rng, o.attnOpts)
-		self.norm2 = Norm.new(name .. "/norm2", C, rng, "rms", 1e-6)
+		self.norm2 = Norm.new(name .. "/norm2", C, rng, "rms", rmsEps)
 		self.ffn = FFN.new(name .. "/ffn", C, ffnHidden, rng)
 
 		self.layers = { self.norm1, self.attn, self.norm2, self.ffn }

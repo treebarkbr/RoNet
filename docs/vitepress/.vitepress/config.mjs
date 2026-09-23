@@ -47,6 +47,7 @@ function sidebar() {
       items: [
         { text: 'Quick start', link: '/guide/quickstart' },
         { text: 'Roblox port', link: '/guide/roblox' },
+        { text: 'PyTorch import', link: '/guide/ptimport' },
       ],
     },
     ...groups.map((g) => ({
@@ -76,6 +77,7 @@ const base = {
     nav: [
       { text: 'Guide', link: '/guide/quickstart' },
       { text: 'Roblox', link: '/guide/roblox' },
+      { text: 'PyTorch import', link: '/guide/ptimport' },
       { text: 'API', link: '/api/' },
     ],
     sidebar: sidebar(),

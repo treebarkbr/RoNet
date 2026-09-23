@@ -23,6 +23,8 @@ optim/      AdamW, AdEMAMix, Lion, NAdamW, CautiousAdamW, ScheduleFreeAdamW,
             SOAP, Muon, MuonAdamW
 train/      Scheduler, EMA, Serialize (weight checkpoints), Trainer (batched fit)
 data/       BPE (byte-level tokenizer)
+tools/      pt2ronet.py (HF safetensors -> RoNet import), pt2ronet_check.py
+            (independent numpy cross-check of an imported model)
 tests/      entry scripts for each layer, plus tests/run_all.sh
 .tools/     luau and luau-analyze binaries used by the test suite
 ```
@@ -42,6 +44,35 @@ CLI. Two runtime differences from the CLI: Roblox scripts do not expose Luau's
 values), and the test suite / `.tools/` binaries are not shipped. The artifact
 is built with `build/rbxm/` (a small rbx-dom Rust tool; no Studio needed), not
 hand-exported. Full details: [docs guide](/guide/roblox).
+
+## Import a Hugging Face checkpoint
+
+`tools/pt2ronet.py` converts a Hugging Face Llama-style `model.safetensors` plus
+`config.json` (Llama 2/3, Mistral, and other GPT-NeoX-layout transformers) into
+a standalone Luau module holding the exact RoNet Transformer `cfg` and a
+`Serialize` weight string:
+
+```sh
+python3 tools/pt2ronet.py path/model.safetensors --config path/config.json --out weights.luau
+```
+
+Load it into a RoNet Transformer (the emitted module drops straight into the
+`Serialize.load` contract):
+
+```lua
+local W = require("path.to.weights")
+local model = deps.Transformer.new("pt", W.cfg, deps.PRNG.new(1))
+deps.Serialize.load(deps.Module.collectParams(model), W.weights)
+```
+
+The converter applies RoNet's `[in, out]` matrix convention (every matmul
+weight is transposed versus PyTorch), reproduces the `Module.collectParams`
+parameter order, maps RoPE base and RMS epsilon from the source config, and
+honors tied word embeddings. `tools/pt2ronet_check.py` cross-checks a converted
+model against an independent numpy forward pass, and a tiny random checkpoint
+(`tests/fixtures/pt_tiny`) runs the same path as a suite test
+(`tests/_smoke_pt.luau`). Requirements: python3 + numpy. Full reference and a
+config mapping table: [PyTorch import guide](/guide/ptimport).
 
 ## Requirements
 
@@ -65,8 +96,9 @@ bash tests/native.sh                   # full suite under native codegen (O2 + -
 Each test runs in its own process (the CLI requires are entry-only). The suite
 covers the tensor engine with finite differences, every layer, every optimizer,
 the training stack (schedulers, EMA, serialization, losses), the BPE tokenizer,
-and one end-to-end language model fit followed by generation and checkpoint
-round-trips.
+one end-to-end language model fit followed by generation and checkpoint
+round-trips, and a PyTorch checkpoint import smoke test that loads a converted
+Llama-style fixture and round-trips every weight through Serialize.
 
 `-O2` optimizes the bytecode; `--codegen` makes the VM translate hot functions
 to native x64/aarch64 at load time (typical wall-clock win: ~1.5-2x on this

@@ -1,6 +1,6 @@
 --!strict
 -- Decoder-only Transformer (GPT-style). Config fields:
--- { C, numBlocks, nbHeads, kvHeads, headDim, ffnHidden, vocab, maxSeq, tieEmbeds, dropoutP, initType }
+-- { C, numBlocks, nbHeads, kvHeads, headDim, ffnHidden, vocab, maxSeq, tieEmbeds, dropoutP, initType, ropeBase?, rmsEps? }
 -- forward(ids: {number}) -> logits [N, vocab] consistent with the last block.
 return function(deps: any)
 	local Tensor = deps.Tensor
@@ -16,7 +16,7 @@ return function(deps: any)
 
 	-- Build a GPT-style decoder-only transformer. cfg fields:
 	-- { C, numBlocks, nbHeads, kvHeads, headDim, ffnHidden, vocab, maxSeq,
-	--   tieEmbeds?, dropoutP?, initType?, ropeBase? }.
+	--   tieEmbeds?, dropoutP?, initType?, ropeBase?, rmsEps? }.
 	function Transformer.new(name: string, cfg: any, rng: any)
 		local self: any = setmetatable({
 			name = name,
@@ -25,6 +25,7 @@ return function(deps: any)
 			vocab = cfg.vocab,
 			tieEmbeds = if cfg.tieEmbeds == nil then true else cfg.tieEmbeds,
 			initType = cfg.initType or "default",
+			rmsEps = cfg.rmsEps or 1e-6,
 			params = {},
 			blocks = {},
 		}, Transformer)
@@ -34,11 +35,11 @@ return function(deps: any)
 		for bi = 1, self.numBlocks do
 			local block = Block.new(name .. "/b" .. bi, self.C, cfg.nbHeads,
 				cfg.kvHeads or cfg.nbHeads, cfg.headDim, cfg.ffnHidden, rng,
-				{ initType = self.initType, numBlocks = self.numBlocks })
+				{ initType = self.initType, numBlocks = self.numBlocks, rmsEps = self.rmsEps })
 			self.blocks[bi] = block
 			for _, t in block.params do table.insert(self.params, t) end
 		end
-		self.normF = Norm.new(name .. "/normF", self.C, rng, "rms", 1e-6)
+		self.normF = Norm.new(name .. "/normF", self.C, rng, "rms", self.rmsEps)
 
 		if self.tieEmbeds then
 			-- shared weight object: dedup happens on collection
