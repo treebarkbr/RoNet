@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/vitepress/docs/public/logo.png" width="160" alt="RoNet logo"/>
+</p>
+
 # RoNetV4.1
 
 A small neural network library for Luau, written as strict modules. It has an

@@ -1,9 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="100%" height="100%">
-  <!-- Tilted Block (Roblox/Luau Geometry) -->
-  <rect x="6" y="6" width="20" height="20" rx="4.5" transform="rotate(45 16 16)" fill="#FF2442"/>
-  
-  <!-- Neural Synapse Channel -->
-  <line x1="8" y1="16" x2="24" y2="16" stroke="#0E1015" stroke-width="3" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="128mm" height="128mm">
+  <!-- Blender-ready: all elements are FILLS (no lines/strokes, no transforms),
+       so the SVG importer creates real geometry with the full thickness. -->
+
+  <!-- Tilted Block as explicit diamond polygon (45deg rect, no transform) -->
+  <polygon points="16,6 26,16 16,26 6,16" fill="#FF2442"/>
+
+  <!-- Neural Synapse Channel as a filled bar (was a thin stroke) -->
+  <rect x="6" y="14.5" width="20" height="3" fill="#0E1015"/>
 
   <!-- 3 Neural Nodes (Input - Hidden - Output) -->
   <circle cx="8" cy="16" r="2.8" fill="#FFFFFF"/>
