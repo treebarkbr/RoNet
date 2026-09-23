@@ -142,6 +142,12 @@ grown one element at a time. Things worth knowing when you push table sizes up:
   available in the stock Luau CLI. Roblox scripts expose `buffer` but not Luau's
   `vector`, so there `matmulFast` silently falls back to the scalar kernel with
   identical results.)
+- **Inference takes the fast path automatically.** `Transformer:eval()` detaches
+  the parameters, so `forward`/`forwardBatch` build no autograd graph and
+  `Tensor.matmul` auto-routes to the SIMD kernel; Attention reads the transposed
+  K directly (`bmmNT`) and uses forward-only batched matmuls. Fused
+  `Tensor.rmsNorm`/`layerNorm`/`rotary` and a linear last-dim `softmax` are used
+  in both modes. `train()` restores the stored `requiresGrad` flags.
 
 ## Quick start
 
@@ -209,8 +215,12 @@ print(tok:decode(out))
 - **Checkpoints.** `Serialize.dump(params)` returns a plain string;
   `Serialize.load(params, str)` writes it back into an existing list.
   Tokenizer state persists via `tok:state()` and `BPE.fromState(st)`.
-- **Dropout and EVAL.** `Transformer:eval()` toggles dropout off for
-  `generate()`, `Transformer:train()` restores it.
+- **Dropout, EVAL and KV cache.** `Transformer:eval()` toggles dropout off and
+  detaches gradients (see the inference note above); `Transformer:train()`
+  restores both. `generate` runs the decode phase with an incremental KV cache
+  per block (raw K/V append, no repeated attention over the prompt), giving
+  per-token cost independent of prompt length; pass `{ cache = false }` to
+  replay a full forward per token instead (used by the parity tests).
 - **Optimizer API.** Every optimizer exposes `new(params, lr, opts)`, `step`,
   `zeroGrad`, `setLr/getLr`, `paramCount`, and `stateDict/loadStateDict`.
   Schedules attach with `Scheduler.forOptimizer(opt, schedule)` and are stepped

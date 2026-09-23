@@ -148,7 +148,7 @@ Elementwise clamp into [lo, hi].
 
 #### `matmul(a: Tensor, b: Tensor) -> Tensor`
 
-C[i,j] = sum_k A[i,k] * B[k,j]  (2D only; use bmm for batches).
+C[i,j] = sum_k A[i,k] * B[k,j]  (2D only; use bmm for batches). When neither input requiresGrad the kernel auto-routes to the SIMD matmulFast path (no autograd node; ~1.3x native / ~4x interpreter).
 
 #### `matmulFast(a: Tensor, b: Tensor) -> Tensor`
 
@@ -157,6 +157,14 @@ Forward-only SIMD matmul (no autograd). Same result as matmul(a, b) but uses the
 #### `bmm(a: Tensor, b: Tensor) -> Tensor`
 
 Batched matmul: [B, M, K] @ [B, K, N] -&gt; [B, M, N].
+
+#### `bmmFast(a: Tensor, b: Tensor) -> Tensor`
+
+Forward-only SIMD batched matmul (no autograd): A [B,M,N] @ B [B,N,K] -&gt; [B,M,K]. Same 3-lane vector trick as matmulFast over the K columns; the scalar bmm measured 3.5-4.3x slower in the interpreter, ~1.2x under native codegen. Falls back to Tensor.bmm when the `vector` library is absent.
+
+#### `bmmNT(a: Tensor, b: Tensor) -> Tensor`
+
+SIMD A @ B^T for b stored already-oriented as [B, K, N]: out[b,i,k] = sum_j a[b,i,j]*b[b,k,j]. This avoids materializing a transposed copy (the attention Q@K^T call spent a full transpose + broadcast add per forward). Requires no autograd; falls back to bmm + transpose when baked-in.
 
 #### `reshape(t: Tensor, newShape: {number}) -> Tensor`
 
@@ -185,6 +193,18 @@ Squared L2 norm, used by vector-like regularization / normalization helpers.
 #### `softmax(t: Tensor, dim: number?) -> Tensor`
 
 Softmax along a single dim (default: last) - used on [B,V] logits and the on output rows of a [T,D] sequence. Backward uses the standard dPi/dXj = Pi*(delta_ij - Pj).
+
+#### `rmsNorm(x: Tensor, gamma: Tensor, eps: number) -> Tensor`
+
+Fused RMSNorm over the LAST dim: y = x * gamma * rsqrt(mean(x^2)+eps). Works for any ndim (leading dims are just rows of the flat last-dim- contiguous array). The composite path (mul/mean/pow/addScalar/mul/mul) measured 33-39x slower (two temporaries + graph nodes per call).
+
+#### `layerNorm(x: Tensor, gamma: Tensor, beta: Tensor?, eps: number) -> Tensor`
+
+Fused LayerNorm over the LAST dim: y = (x - mu) * gamma * invstd + beta. beta may be nil (affine-free). Same fused-loop rationale as rmsNorm.
+
+#### `rotary(x: Tensor, cosT: Tensor, sinT: Tensor) -> Tensor`
+
+Fused RoPE pair-rotation on the trailing dim: every (2k-1, 2k) pair of x[..., t, :] is rotated by the angle whose cos/sin come from cosT/sinT (flat row-major [T, half], position t, frequency k). The composite path (reshape/select/mul/sub/stack/cat) measured 155-171x slower. Backward is the inverse rotation (angle negated) on the incoming grad.
 
 #### `cat(ts: {Tensor}, dim: number?) -> Tensor`
 

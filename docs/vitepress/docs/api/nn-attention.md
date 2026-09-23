@@ -14,3 +14,7 @@ Create a multi-head attention module. opts.causal (default true) and opts.rope (
 
 Attention over x: [B, T, C] -&gt; [B, T, C]. Pass the RoPE.precompute result as freqs when the module has rope enabled.
 
+#### `step(: any, x: any, freqs: any, cache: any, pos: number) -> any`
+
+Incremental decode of one token at global position pos (1-based) with a KV cache: x [1, C] is the current token's hidden state. freqs has flat cos/sin tables, cache = { k = {number}, v = {number}, len } per block (row-major [len, kv*hd]). Assumes eval mode (no autograd, raw arrays); the freshly-built Q/K/V tensors are mutated in place for the rotation.
+

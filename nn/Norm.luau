@@ -38,29 +38,10 @@ return function(deps: any)
 
 	-- Normalize x over the last dim (RMSNorm by default; LayerNorm if op is "layer").
 	function Norm.forward(self: any, x: any): any
-		local nd = #x.shape
-		local lastDim = nd
-		local xShape = Tensor.shapeOf(x)
-		local gammaR = Tensor.reshape(self.gamma, broadcastShape(xShape))
 		if self.op == "rms" then
-			local x2 = Tensor.mul(x, x)
-			local ms = Tensor.mean(x2, lastDim)
-			local rms = Tensor.reshape(ms, appendDim(Tensor.shapeOf(ms), 1))
-			local inv = Tensor.pow(Tensor.addScalar(rms, self.eps), -0.5)
-			return Tensor.mul(Tensor.mul(x, inv), gammaR)
+			return Tensor.rmsNorm(x, self.gamma, self.eps)
 		end
-		-- layer norm
-		local mu = Tensor.mean(x, lastDim)
-		local muB = Tensor.reshape(mu, appendDim(Tensor.shapeOf(mu), 1))
-		local res = Tensor.sub(x, muB)
-		local x2 = Tensor.mul(res, res)
-		local varr = Tensor.mean(x2, lastDim)
-		local iv = Tensor.pow(Tensor.addScalar(Tensor.reshape(varr, appendDim(Tensor.shapeOf(varr), 1)), self.eps), -0.5)
-		local out = Tensor.mul(Tensor.mul(res, iv), gammaR)
-		if self.beta then
-			out = Tensor.add(out, Tensor.reshape(self.beta, broadcastShape(xShape)))
-		end
-		return out
+		return Tensor.layerNorm(x, self.gamma, self.beta, self.eps)
 	end
 
 	return Norm

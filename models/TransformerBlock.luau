@@ -93,5 +93,33 @@ return function(deps: any)
 		return h
 	end
 
+	-- Incremental single-token decode with a KV cache. Mirrors forward for a
+	-- [1, 1, C] token at global position pos (1-based); cache = { attn = {...} },
+	-- matching the shape passed by Transformer.generate. Requires the model
+	-- params to be detached (eval) so Attention.step runs on raw arrays.
+	function Block.step(self: any, x: any, freqs: any, cache: any, pos: number): any
+		local a1 = self.attn.step(self.attn, self.norm1.forward(self.norm1, x), freqs, cache.attn, pos)
+		local s = self.residualScale(self)
+		local h
+		if self.initType == "rezero" then
+			local alpha1 = Tensor.reshape(self.alpha1, onesLike(x))
+			h = Tensor.add(x, Tensor.mul(a1, alpha1))
+		elseif self.initType == "deepnorm" then
+			h = Tensor.add(Tensor.mulScalar(x, s), a1)
+		else
+			h = Tensor.add(x, a1)
+		end
+		local a2 = self.ffn.forward(self.ffn, self.norm2.forward(self.norm2, h))
+		if self.initType == "rezero" then
+			local alpha2 = Tensor.reshape(self.alpha2, onesLike(h))
+			h = Tensor.add(h, Tensor.mul(a2, alpha2))
+		elseif self.initType == "deepnorm" then
+			h = Tensor.add(Tensor.mulScalar(h, s), a2)
+		else
+			h = Tensor.add(h, a2)
+		end
+		return h
+	end
+
 	return Block
 end

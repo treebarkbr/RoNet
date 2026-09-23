@@ -91,37 +91,52 @@ return function(deps: any)
 		return Tensor.reshape(logits, { B, T, self.vocab })
 	end
 
-	-- Switch to eval mode (disables dropout); returns self for chaining.
+	-- Switch to eval mode (disables dropout) and detaches parameters so forward
+	-- builds no autograd graph (matmul auto-routes to the SIMD kernel); returns self
+	-- for chaining. train() restores the stored requiresGrad flags.
 	function Transformer.eval(self): any
 		self.drop.training = false
+		if not self._gradOn then self._gradOn = {} end
+		for _, t in self.params do
+			if t.requiresGrad and not self._gradOn[t] then
+				self._gradOn[t] = true
+				t.requiresGrad = false
+			end
+		end
 		return self
 	end
 
 	-- Switch to train mode (enables dropout); returns self for chaining.
 	function Transformer.train(self): any
 		self.drop.training = true
+		local gradOn = self._gradOn
+		if gradOn then
+			for t in gradOn do t.requiresGrad = true end
+		end
+		self._gradOn = nil
 		return self
 	end
 
 	-- Autoregressive sampling. seed: {number} prompt ids. Appends nTokens new ids.
-	-- opts: { temperature?, topK? }. Uses the model's rng for non-greedy picks.
+	-- opts: { temperature?, topK?, cache? }. Uses the model's rng for non-greedy
+	-- picks. cache defaults to true (KV-cache decode); set cache=false to replay
+	-- a full forward per token (useful for parity checks).
 	function Transformer.generate(self: any, seed: { number }, nTokens: number, opts: any?): { number }
 		local o = opts or {}
 		local temp = o.temperature or 1.0
 		local topK = o.topK
 		local V = self.vocab
-		local ids = table.clone(seed)
 		local rng = self.rng
+		local ids = table.clone(seed)
 		local needsEval = self.drop.training
 		if needsEval then self:eval() end
-		for _ = 1, nTokens do
-			local logits = self:forward(ids) -- [T, V]
-			local Tn = #ids
-			local base = (Tn - 1) * V
+
+		-- Shared temperature/topK/rng picker over a length-V logit row.
+		local function pickFrom(logitsData: { number }, base: number): number
 			local probs: { number } = table.create(V)
 			local mx = -math.huge
 			for v = 1, V do
-				local s = logits.data[base + v] / temp
+				local s = logitsData[base + v] / temp
 				probs[v] = s
 				if s > mx then mx = s end
 			end
@@ -160,7 +175,51 @@ return function(deps: any)
 					break
 				end
 			end
+			return pick
+		end
+
+		if o.cache == false then
+			for _ = 1, nTokens do
+				local logits = self:forward(ids) -- [T, V]
+				local Tn = #ids
+				table.insert(ids, pickFrom(logits.data, (Tn - 1) * V))
+			end
+			if needsEval then self:train() end
+			return ids
+		end
+
+		-- KV-cache path: prefill the prompt one token at a time, keeping each
+		-- block's K/V in raw arrays, then decode per token with last-token logits.
+		local caches = table.create(self.numBlocks)
+		for bi = 1, self.numBlocks do
+			caches[bi] = { attn = { k = {}, v = {}, len = 0 } }
+		end
+		local lmHeadT = Tensor.transpose2d(self.lmHeadW) -- [C, vocab] once
+		local x
+		for t = 1, #seed do
+			x = self.emb.forward(self.emb, { seed[t] }) -- [1, C]
+			x = Tensor.reshape(x, { 1, 1, self.C })
+			if self.drop.training and self.drop.p > 0 then
+				x = self.drop.forward(self.drop, x)
+			end
+			for bi = 1, self.numBlocks do
+				x = self.blocks[bi].step(self.blocks[bi], x, self.freqs, caches[bi], t)
+			end
+			x = self.normF.forward(self.normF, x) -- [1, 1, C]
+		end
+		local pos = #seed
+		for _ = 1, nTokens do
+			local flat = Tensor.reshape(x, { 1, self.C })
+			local logits = Tensor.matmul(flat, lmHeadT) -- [1, V]
+			local pick = pickFrom(logits.data, 0)
 			table.insert(ids, pick)
+			pos += 1
+			x = self.emb.forward(self.emb, { pick }) -- [1, C]
+			x = Tensor.reshape(x, { 1, 1, self.C })
+			for bi = 1, self.numBlocks do
+				x = self.blocks[bi].step(self.blocks[bi], x, self.freqs, caches[bi], pos)
+			end
+			x = self.normF.forward(self.normF, x)
 		end
 		if needsEval then self:train() end
 		return ids

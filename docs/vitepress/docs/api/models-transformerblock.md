@@ -18,3 +18,7 @@ Residual-path scale factor (1.0 default/rezero, (2L)^(1/4) deepnorm).
 
 h = x + SA(LN(x)); h = h + FFN(LN(h)); freqs passed through to attention.
 
+#### `step(: any, x: any, freqs: any, cache: any, pos: number) -> any`
+
+Incremental single-token decode with a KV cache. Mirrors forward for a [1, 1, C] token at global position pos (1-based); cache = { attn = {...} }, matching the shape passed by Transformer.generate. Requires the model params to be detached (eval) so Attention.step runs on raw arrays.
+

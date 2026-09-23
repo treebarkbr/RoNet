@@ -25,17 +25,20 @@ return function(deps: any)
 		return { cos = cos, sin = sin, cosT = Tensor.fromData(cos, { seqLen, half }, false), sinT = Tensor.fromData(sin, { seqLen, half }, false) }
 	end
 
-	-- x: [..., T, D], freqs must have seqLen >= T. Rotates every (2k, 2k+1) pair.
+	-- x: [..., T, D], freqs must have seqLen >= T. Rotates every (2k, 2k+1) pair
+	-- in one fused Tensor.rotary kernel (single pass, no [.., T, half] temporaries).
 	function RoPE.apply(x: any, freqs: any): any
 		local xshape = Tensor.shapeOf(x)
 		local nd = #xshape
 		local Tsize = xshape[nd - 1]
-		local D = xshape[nd]
-		local half = math.floor(D / 2)
+		local half = math.floor(xshape[nd] / 2)
 		local fC = freqs.cosT
 		local fS = freqs.sinT
 		if Tsize > fC.shape[1] then
 			error("RoPE: sequence length exceeds precomputed freqs", 2)
+		end
+		if half > fC.shape[2] then
+			error("RoPE: headDim exceeds precomputed freqs", 2)
 		end
 		local function trim(t: any): any
 			if Tsize < t.shape[1] then
@@ -43,29 +46,7 @@ return function(deps: any)
 			end
 			return t
 		end
-		fC = trim(fC)
-		fS = trim(fS)
-		if half > fC.shape[2] then half = fC.shape[2] end
-
-		-- Split trailing dim into pairs: [..., T, half, 2]
-		local keep = table.create(nd - 1)
-		for i = 1, nd - 1 do keep[i] = xshape[i] end
-		local pairedShape = table.create(#keep + 2)
-		for i = 1, #keep do pairedShape[i] = keep[i] end
-		pairedShape[#keep + 1] = half
-		pairedShape[#keep + 2] = 2
-		local paired = Tensor.reshape(x, pairedShape)
-
-		local even = Tensor.selectLastDim(paired, 1) -- [..., T, half]
-		local odd = Tensor.selectLastDim(paired, 2)
-
-		-- broadcast [T, half] against [..., T, half]: right-aligned ok
-		local rotEven = Tensor.sub(Tensor.mul(even, fC), Tensor.mul(odd, fS))
-		local rotOdd = Tensor.add(Tensor.mul(even, fS), Tensor.mul(odd, fC))
-
-		-- stack back into [..., T, half, 2] then restore shape
-		local stack = RoPE.stackLast(rotEven, rotOdd)
-		return Tensor.reshape(stack, xshape)
+		return Tensor.rotary(x, trim(fC), trim(fS))
 	end
 
 	-- stack [..., h] and [..., h] along a new trailing size-2 dim -> [..., h, 2].

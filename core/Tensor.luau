@@ -529,7 +529,15 @@ end
 --- Matmul -----------------------------------------------------------------------
 
 -- C[i,j] = sum_k A[i,k] * B[k,j]  (2D only; use bmm for batches).
+-- When neither input requiresGrad the kernel auto-routes to the SIMD
+-- matmulFast path (no autograd node; ~1.3x native / ~4x interpreter).
 function Tensor.matmul(a: Tensor, b: Tensor): Tensor
+	if not (a.requiresGrad or b.requiresGrad) then
+		local vl = rawget(_G, "vector")
+		if type(vl) == "table" and type(vl.create) == "function" then
+			return Tensor.matmulFast(a, b)
+		end
+	end
 	local ash, bsh = a.shape, b.shape
 	if #ash ~= 2 or #bsh ~= 2 then
 		error("matmul currently supports 2D tensors only", 2)
@@ -709,6 +717,110 @@ function Tensor.bmm(a: Tensor, b: Tensor): Tensor
 		end
 	end
 	return res
+end
+
+-- Forward-only SIMD batched matmul (no autograd): A [B,M,N] @ B [B,N,K] ->
+-- [B,M,K]. Same 3-lane vector trick as matmulFast over the K columns; the
+-- scalar bmm measured 3.5-4.3x slower in the interpreter, ~1.2x under native
+-- codegen. Falls back to Tensor.bmm when the `vector` library is absent.
+function Tensor.bmmFast(a: Tensor, b: Tensor): Tensor
+	local vl = rawget(_G, "vector")
+	if type(vl) ~= "table" or type(vl.create) ~= "function" then
+		return Tensor.bmm(a, b)
+	end
+	local ash, bsh = a.shape, b.shape
+	local Ba, M, N = ash[1], ash[2], ash[3]
+	local Bb, K = bsh[1], bsh[3]
+	if Ba ~= Bb then
+		error(string.format("bmmFast batch dim mismatch: %d vs %d", Ba, Bb), 2)
+	end
+	local ad, bd = a.data, b.data
+	local out = table.create(Ba * M * K, 0)
+	for bb = 1, Ba do
+		local abase = (bb - 1) * M * N
+		local bbase = (bb - 1) * N * K
+		local obase = (bb - 1) * M * K
+		for j = 1, K, 3 do
+			local nb = math_min(3, K - j + 1)
+			local Bv = table.create(N)
+			for kk = 1, N do
+				local boff = bbase + (kk - 1) * K + j
+				Bv[kk] = vl.create(
+					bd[boff],
+					if nb >= 2 then bd[boff + 1] else 0,
+					if nb >= 3 then bd[boff + 2] else 0
+				)
+			end
+			for i = 1, M do
+				local aoff = abase + (i - 1) * N
+				local s = vl.zero
+				for kk = 1, N do
+					s += ad[aoff + kk] * Bv[kk]
+				end
+				out[obase + (i - 1) * K + j] = s.x
+				if nb >= 2 then out[obase + (i - 1) * K + j + 1] = s.y end
+				if nb >= 3 then out[obase + (i - 1) * K + j + 2] = s.z end
+			end
+		end
+	end
+	return makeRawTensor({ Ba, M, K }, out, false, nil, "bmmFast")
+end
+
+-- SIMD A @ B^T for b stored already-oriented as [B, K, N]: out[b,i,k] =
+-- sum_j a[b,i,j]*b[b,k,j]. This avoids materializing a transposed copy (the
+-- attention Q@K^T call spent a full transpose + broadcast add per forward).
+-- Requires no autograd; falls back to bmm + transpose when baked-in.
+function Tensor.bmmNT(a: Tensor, b: Tensor): Tensor
+	local vl = rawget(_G, "vector")
+	if type(vl) ~= "table" or type(vl.create) ~= "function" then
+		return Tensor.bmm(a, Tensor.transpose(b, 2, 3))
+	end
+	local ash, bsh = a.shape, b.shape
+	local Ba, M, N = ash[1], ash[2], ash[3]
+	local Bb, K = bsh[1], bsh[2]
+	if Ba ~= Bb or N ~= bsh[3] then
+		error(string.format("bmmNT dim mismatch: [%s] @ [%s]", table.concat(ash, "x"), table.concat(bsh, "x")), 2)
+	end
+	local ad, bd = a.data, b.data
+	local out = table.create(Ba * M * K, 0)
+	for bb = 1, Ba do
+		local abase = (bb - 1) * M * N
+		local bbase = (bb - 1) * K * N
+		local obase = (bb - 1) * M * K
+		local Av = table.create(M)
+		local Bv = table.create(K)
+		for j = 1, N, 3 do
+			local nb = math_min(3, N - j + 1)
+			for i = 1, M do
+				local aoff = abase + (i - 1) * N + j
+				Av[i] = vl.create(
+					ad[aoff],
+					if nb >= 2 then ad[aoff + 1] else 0,
+					if nb >= 3 then ad[aoff + 2] else 0
+				)
+			end
+			for k = 1, K do
+				local boff = bbase + (k - 1) * N + j
+				Bv[k] = vl.create(
+					bd[boff],
+					if nb >= 2 then bd[boff + 1] else 0,
+					if nb >= 3 then bd[boff + 2] else 0
+				)
+			end
+			for i = 1, M do
+				local Arow = Av[i]
+				local oi = obase + (i - 1) * K
+				for k = 1, K do
+					local s = Arow * Bv[k]
+					-- lanes are partial sums over j for THIS (i, k): accumulate
+					out[oi + k] += s.x
+					if nb >= 2 then out[oi + k] += s.y end
+					if nb >= 3 then out[oi + k] += s.z end
+				end
+			end
+		end
+	end
+	return makeRawTensor({ Ba, M, K }, out, false, nil, "bmmNT")
 end
 
 --- Reshape / transpose ---------------------------------------------------------
@@ -951,12 +1063,56 @@ function Tensor.softmax(t: Tensor, dim: number?): Tensor
 	end
 	local nd = #t.shape
 	local softDim = t.shape[dimIdx]
+	local out = table.create(#t.data, 0)
+
+	-- Fast path: softmax over the LAST (contiguous) dim. Folded index math
+	-- instead of coordsOf/insertCoord/indexOf decomposition per element.
+	if dimIdx == nd then
+		local rows = 1
+		for d = 1, nd - 1 do rows *= t.shape[d] end
+		local td = t.data
+		local cols = softDim
+		for r = 0, rows - 1 do
+			local base = r * cols
+			local m = -math.huge
+			for c = 1, cols do
+				local v = td[base + c]
+				if v > m then m = v end
+			end
+			local sumE = 0
+			for c = 1, cols do
+				local e = math_exp(td[base + c] - m)
+				out[base + c] = e
+				sumE += e
+			end
+			local inv = sumE > 0 and 1 / sumE or 0
+			for c = 1, cols do out[base + c] *= inv end
+		end
+		local resF = makeRawTensor(copyData(t.shape), out, t.requiresGrad, { t }, "softmax")
+		if t.requiresGrad then
+			resF._backward = function()
+				local grad = Tensor.ensureGrad(resF)
+				local ga = table.create(#t.data, 0)
+				for r = 0, rows - 1 do
+					local base = r * cols
+					local dot = 0
+					for j = 1, cols do dot += grad[base + j] * out[base + j] end
+					for i = 1, cols do
+						local oi = out[base + i]
+						ga[base + i] += oi * (grad[base + i] - dot)
+					end
+				end
+				accumulateGrad(t, ga)
+			end
+		end
+		return resF
+	end
+
 	local preShape = table.create(nd - 1)
 	for d = 1, nd do
 		if d ~= dimIdx then preShape[#preShape + 1] = t.shape[d] end
 	end
 	local preSize = sizeOf(preShape)
-	local out = table.create(#t.data, 0)
 
 	for pi = 1, preSize do
 		local oc = coordsOf(preShape, pi - 1)
@@ -1002,6 +1158,224 @@ function Tensor.softmax(t: Tensor, dim: number?): Tensor
 				end
 			end
 			accumulateGrad(t, ga)
+		end
+	end
+	return res
+end
+
+--- Fused kernels (softmax/norm/rotary above were split over many Tensor ops) --
+
+-- Fused RMSNorm over the LAST dim: y = x * gamma * rsqrt(mean(x^2)+eps).
+-- Works for any ndim (leading dims are just rows of the flat last-dim-
+-- contiguous array). The composite path (mul/mean/pow/addScalar/mul/mul)
+-- measured 33-39x slower (two temporaries + graph nodes per call).
+function Tensor.rmsNorm(x: Tensor, gamma: Tensor, eps: number): Tensor
+	local nd = #x.shape
+	local D = x.shape[nd]
+	local rows = #x.data / D
+	local xd = x.data
+	local gd = gamma.data
+	local out = table.create(#x.data)
+	for r = 0, rows - 1 do
+		local base = r * D
+		local ss = 0
+		for c = 1, D do ss += xd[base + c] * xd[base + c] end
+		local inv = 1 / math_sqrt(ss / D + eps)
+		for c = 1, D do out[base + c] = xd[base + c] * inv * gd[c] end
+	end
+	local needsGrad = x.requiresGrad or gamma.requiresGrad
+	local res = makeRawTensor(copyData(x.shape), out, needsGrad, { x, gamma }, "rmsNorm")
+	if needsGrad then
+		res._backward = function()
+			local grad = Tensor.ensureGrad(res)
+			if x.requiresGrad then
+				local gx = table.create(#xd, 0)
+				for r = 0, rows - 1 do
+					local base = r * D
+					local ss = 0
+					for c = 1, D do ss += xd[base + c] * xd[base + c] end
+					local s = 1 / math_sqrt(ss / D + eps)
+					local dotx = 0
+					for c = 1, D do dotx += grad[base + c] * gd[c] * xd[base + c] end
+					local coef = (dotx * s * s * s) / D -- s = rsqrt(mean+eps), so s^3 = inv^3
+					for c = 1, D do
+						gx[base + c] = s * grad[base + c] * gd[c] - xd[base + c] * coef
+					end
+				end
+				accumulateGrad(x, gx)
+			end
+			if gamma.requiresGrad then
+				local gg = table.create(D, 0)
+				for r = 0, rows - 1 do
+					local base = r * D
+					local ss = 0
+					for c = 1, D do ss += xd[base + c] * xd[base + c] end
+					local s = 1 / math_sqrt(ss / D + eps)
+					for c = 1, D do gg[c] += grad[base + c] * xd[base + c] * s end
+				end
+				accumulateGrad(gamma, gg)
+			end
+		end
+	end
+	return res
+end
+
+-- Fused LayerNorm over the LAST dim: y = (x - mu) * gamma * invstd + beta.
+-- beta may be nil (affine-free). Same fused-loop rationale as rmsNorm.
+function Tensor.layerNorm(x: Tensor, gamma: Tensor, beta: Tensor?, eps: number): Tensor
+	local nd = #x.shape
+	local D = x.shape[nd]
+	local rows = #x.data / D
+	local xd = x.data
+	local gd = gamma.data
+	local out = table.create(#x.data)
+	for r = 0, rows - 1 do
+		local base = r * D
+		local mu = 0
+		for c = 1, D do mu += xd[base + c] end
+		mu /= D
+		local var = 0
+		for c = 1, D do
+			local d = xd[base + c] - mu
+			var += d * d
+		end
+		local inv = 1 / math_sqrt(var / D + eps)
+		for c = 1, D do
+			local o = (xd[base + c] - mu) * inv * gd[c]
+			if beta then o += beta.data[c] end
+			out[base + c] = o
+		end
+	end
+	local needsGrad = x.requiresGrad or gamma.requiresGrad or (beta ~= nil and beta.requiresGrad)
+	local prev: {Tensor} = if beta then { x, gamma, beta } else { x, gamma }
+	local res = makeRawTensor(copyData(x.shape), out, needsGrad, prev, "layerNorm")
+	if needsGrad then
+		local b = beta
+		res._backward = function()
+			local grad = Tensor.ensureGrad(res)
+			if x.requiresGrad then
+				local gx = table.create(#xd, 0)
+				for r = 0, rows - 1 do
+					local base = r * D
+					local mu = 0
+					for c = 1, D do mu += xd[base + c] end
+					mu /= D
+					local var = 0
+					for c = 1, D do
+						local d = xd[base + c] - mu
+						var += d * d
+					end
+					local inv = 1 / math_sqrt(var / D + eps)
+					-- dx = (gamma*invstd/n) * (n*dy - sum(dy) - xhat*sum(dy*xhat))
+					local sumDy = 0
+					local sumDyXhat = 0
+					for c = 1, D do
+						local xhat = (xd[base + c] - mu) * inv
+						local dyg = grad[base + c] * gd[c]
+						sumDy += dyg
+						sumDyXhat += dyg * xhat
+					end
+					local k = inv / D
+					for c = 1, D do
+						local xhat = (xd[base + c] - mu) * inv
+						gx[base + c] = k * (grad[base + c] * gd[c] * D - sumDy - xhat * sumDyXhat)
+					end
+				end
+				accumulateGrad(x, gx)
+			end
+			if gamma.requiresGrad then
+				local gg = table.create(D, 0)
+				for r = 0, rows - 1 do
+					local base = r * D
+					local mu = 0
+					for c = 1, D do mu += xd[base + c] end
+					mu /= D
+					local var = 0
+					for c = 1, D do
+						local d = xd[base + c] - mu
+						var += d * d
+					end
+					local inv = 1 / math_sqrt(var / D + eps)
+					for c = 1, D do
+						gg[c] += grad[base + c] * (xd[base + c] - mu) * inv
+					end
+				end
+				accumulateGrad(gamma, gg)
+			end
+			if b and b.requiresGrad then
+				local gb = table.create(D, 0)
+				for r = 0, rows - 1 do
+					local base = r * D
+					for c = 1, D do gb[c] += grad[base + c] end
+				end
+				accumulateGrad(b, gb)
+			end
+		end
+	end
+	return res
+end
+
+-- Fused RoPE pair-rotation on the trailing dim: every (2k-1, 2k) pair of
+-- x[..., t, :] is rotated by the angle whose cos/sin come from cosT/sinT
+-- (flat row-major [T, half], position t, frequency k). The composite path
+-- (reshape/select/mul/sub/stack/cat) measured 155-171x slower. Backward is
+-- the inverse rotation (angle negated) on the incoming grad.
+function Tensor.rotary(x: Tensor, cosT: Tensor, sinT: Tensor): Tensor
+	local nd = #x.shape
+	if nd < 2 then error("rotary: needs at least [T, D]", 2) end
+	local T = x.shape[nd - 1]
+	local D = x.shape[nd]
+	local half = math_floor(D / 2)
+	if half * 2 ~= D then error("rotary: trailing dim must be even", 2) end
+	if cosT.shape[1] < T or sinT.shape[1] < T then
+		error("rotary: cos/sin seq shorter than x", 2)
+	end
+	local rows = #x.data / (T * D)
+	local xd = x.data
+	local cd = cosT.data
+	local sd = sinT.data
+	local chalf = cosT.shape[2]
+	if chalf < half then error("rotary: cos half-dim too small", 2) end
+	local out = table.create(#xd)
+	for r = 0, rows - 1 do
+		local base = r * T * D
+		for t = 1, T do
+			local tb = base + (t - 1) * D
+			local cb = (t - 1) * chalf
+			for k = 1, half do
+				local c = cd[cb + k]
+				local s = sd[cb + k]
+				local e = xd[tb + (k - 1) * 2 + 1]
+				local o = xd[tb + (k - 1) * 2 + 2]
+				out[tb + (k - 1) * 2 + 1] = e * c - o * s
+				out[tb + (k - 1) * 2 + 2] = e * s + o * c
+			end
+		end
+	end
+	local needsGrad = x.requiresGrad
+	local res = makeRawTensor(copyData(x.shape), out, needsGrad, { x, cosT, sinT }, "rotary")
+	if needsGrad then
+		res._backward = function()
+			local grad = Tensor.ensureGrad(res)
+			if x.requiresGrad then
+				local gx = table.create(#xd, 0)
+				for r = 0, rows - 1 do
+					local base = r * T * D
+					for t = 1, T do
+						local tb = base + (t - 1) * D
+						local cb = (t - 1) * chalf
+						for k = 1, half do
+							local c = cd[cb + k]
+							local s = sd[cb + k]
+							local ge = grad[tb + (k - 1) * 2 + 1]
+							local go = grad[tb + (k - 1) * 2 + 2]
+							gx[tb + (k - 1) * 2 + 1] = ge * c + go * s
+							gx[tb + (k - 1) * 2 + 2] = -ge * s + go * c
+						end
+					end
+				end
+				accumulateGrad(x, gx)
+			end
 		end
 	end
 	return res

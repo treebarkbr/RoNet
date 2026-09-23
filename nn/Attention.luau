@@ -99,14 +99,25 @@ return function(deps: any)
 		local Kf = Tensor.reshape(K, { B * self.nb, T, hd })
 		local Vf = Tensor.reshape(V, { B * self.nb, T, hd })
 
-		local S = Tensor.bmm(Qf, Tensor.transpose(Kf, 2, 3)) -- [B*nb, T, hd] x [B*nb, hd, T] -> [B*nb, T, T]
+		local S: any
+		if not (Qf.requiresGrad or Kf.requiresGrad) then
+			-- inference: read K as-is, no transposed copy, SIMD lanes over hd
+			S = Tensor.bmmNT(Qf, Kf)
+		else
+			S = Tensor.bmm(Qf, Tensor.transpose(Kf, 2, 3)) -- [B*nb, T, hd] x [B*nb, hd, T] -> [B*nb, T, T]
+		end
 		S = Tensor.mulScalar(S, 1 / math.sqrt(hd))
 		if self.causal and T > 1 then
 			local m = makeCausalMask(T)
 			S = Tensor.add(S, m)
 		end
 		local P = Tensor.softmax(S, 3)
-		local O = Tensor.bmm(P, Vf) -- [B*nb, T, T] x [B*nb, T, hd] -> [B*nb, T, hd]
+		local O: any
+		if not (P.requiresGrad or Vf.requiresGrad) then
+			O = Tensor.bmmFast(P, Vf) -- forward-only SIMD scores @ values
+		else
+			O = Tensor.bmm(P, Vf) -- [B*nb, T, T] x [B*nb, T, hd] -> [B*nb, T, hd]
+		end
 
 		O = Tensor.transpose(Tensor.reshape(O, { B, self.nb, T, hd }), 2, 3) -- [B, T, nb, hd]
 		O = Tensor.reshape(O, { B * T, self.nb * hd })
@@ -114,6 +125,102 @@ return function(deps: any)
 		Out = Tensor.reshape(Out, { B, T, D })
 		return Out
 	end
+
+	-- Incremental decode of one token at global position pos (1-based) with a KV
+		-- cache: x [1, C] is the current token's hidden state. freqs has flat
+		-- cos/sin tables, cache = { k = {number}, v = {number}, len } per block
+		-- (row-major [len, kv*hd]). Assumes eval mode (no autograd, raw arrays);
+		-- the freshly-built Q/K/V tensors are mutated in place for the rotation.
+		function Attention.step(self: any, x: any, freqs: any, cache: any, pos: number): any
+			local hd = self.hd
+			local nb = self.nb
+			local kv = self.kv
+			local group = nb // kv
+			local xf = Tensor.reshape(x, { 1, self.C })
+			local qd = Tensor.matmul(xf, self.Wq).data
+			local kd = Tensor.matmul(xf, self.Wk).data
+			local vd = Tensor.matmul(xf, self.Wv).data
+
+			local half = hd // 2
+			if self.useRope then
+				local c = freqs.cos
+				local s = freqs.sin
+				local cbase = (pos - 1) * half
+				for h = 1, nb do
+					local b = (h - 1) * hd
+					for k = 1, half do
+						local qe = qd[b + 2 * k - 1]
+						local qo = qd[b + 2 * k]
+						local cs = c[cbase + k]
+						local ss = s[cbase + k]
+						qd[b + 2 * k - 1] = qe * cs - qo * ss
+						qd[b + 2 * k] = qe * ss + qo * cs
+					end
+				end
+				for g = 1, kv do
+					local b = (g - 1) * hd
+					for k = 1, half do
+						local ke = kd[b + 2 * k - 1]
+						local ko = kd[b + 2 * k]
+						local cs = c[cbase + k]
+						local ss = s[cbase + k]
+						kd[b + 2 * k - 1] = ke * cs - ko * ss
+						kd[b + 2 * k] = ke * ss + ko * cs
+					end
+				end
+			end
+
+			local kvhd = kv * hd
+			local kc, vc = cache.k, cache.v
+			local len = cache.len
+			local off = len * kvhd
+			for j = 1, kvhd do
+				kc[off + j] = kd[j]
+				vc[off + j] = vd[j]
+			end
+			len += 1
+			cache.len = len
+
+			local invSqrt = 1 / math.sqrt(hd)
+			local out = table.create(nb * hd, 0)
+			for h = 1, nb do
+				local g = ((h - 1) // group) + 1
+				local qb = (h - 1) * hd
+				local kb = (g - 1) * hd
+				local scores = table.create(len)
+				for i = 1, len do
+					local so = (i - 1) * kvhd + kb
+					local acc = 0
+					for j = 1, hd do
+						acc += qd[qb + j] * kc[so + j]
+					end
+					scores[i] = acc * invSqrt
+				end
+				local m = scores[1]
+				for i = 2, len do
+					if scores[i] > m then m = scores[i] end
+				end
+				local sum = 0
+				for i = 1, len do
+					local e = math.exp(scores[i] - m)
+					scores[i] = e
+					sum += e
+				end
+				local inv = 1 / sum
+				for i = 1, len do scores[i] = scores[i] * inv end
+				for j = 1, hd do
+					local acc = 0
+					for i = 1, len do
+						acc += scores[i] * vc[(i - 1) * kvhd + kb + j]
+					end
+					out[qb + j] = acc
+				end
+			end
+
+			local o = Tensor.fromData(out, { 1, nb * hd }, false)
+			local Out = Tensor.matmul(o, self.Wo) -- [1, C]
+			return Tensor.reshape(Out, { 1, 1, self.C })
+		end
 
 	return Attention
 end

@@ -127,6 +127,33 @@ do -- tiny transformer: forward, loss, backward, finite-diff gradient sanity
 	check("params collected", #allParams > 0)
 end
 
+do -- KV-cache generate matches the recompute path, and eval detaches grads
+	local cfg = {
+		C = 8, numBlocks = 2, nbHeads = 2, kvHeads = 1, headDim = 8,
+		ffnHidden = 16, vocab = 16, maxSeq = 16, tieEmbeds = true,
+		dropoutP = 0.0, initType = "rezero",
+	}
+	local tmodel = deps.Transformer.new("kc", cfg, rng)
+	local seed = { 3, 7, 1, 9 }
+	-- topK=1 argmax: deterministic, so tokens must match exactly between paths.
+	local cached = tmodel.generate(tmodel, seed, 6, { topK = 1 })
+	local recalc = tmodel.generate(tmodel, seed, 6, { topK = 1, cache = false })
+	check("cached generate == recompute", table.concat(cached, ",") == table.concat(recalc, ","))
+
+	local lv = tmodel.forward(tmodel, seed) -- training mode, grads on
+	tmodel:eval()
+	check("params detached in eval", not tmodel.lmHeadW.requiresGrad)
+	local lt = tmodel.forward(tmodel, seed) -- eval mode, SIMD fast path
+	tmodel:train()
+	check("params restored on train", tmodel.lmHeadW.requiresGrad)
+	local maxd = 0
+	for i = 1, #lv.data do
+		local d = math.abs(lv.data[i] - lt.data[i])
+		if d > maxd then maxd = d end
+	end
+	check("eval logits agree with train logits", maxd < 1e-4)
+end
+
 do -- ReZero variant runs
 	local cfg = {
 		C = 8, numBlocks = 2, nbHeads = 1, kvHeads = 1, headDim = 8,

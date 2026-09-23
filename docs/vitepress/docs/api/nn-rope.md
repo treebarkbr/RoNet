@@ -12,5 +12,5 @@ Returns { cos: {number}[T][half], sin: {number}[T][half] } flat [T*half] each.
 
 #### `apply(x: any, freqs: any) -> any`
 
-x: [..., T, D], freqs must have seqLen &gt;= T. Rotates every (2k, 2k+1) pair.
+x: [..., T, D], freqs must have seqLen &gt;= T. Rotates every (2k, 2k+1) pair in one fused Tensor.rotary kernel (single pass, no [.., T, half] temporaries).
 
