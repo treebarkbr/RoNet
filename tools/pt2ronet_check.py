@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """Cross-check a pt2ronet.py import against an independent numpy reference.
 
-Runs tests/_exp_pt_import.luau in the Luau CLI to get the RoNet transformer's
-logits for a fixed prompt (ids 1..8) on tests/fixtures/pt_tiny, reimplements the
-same forward pass in numpy (RMSNorm + RoPE + GQA attention + SwiGLU), and
-reports the worst-case deviation. The transpose/ordering conventions of the
-importer are correct iff the two agree to float32-scale tolerance.
+Runs the given Luau entry script (which prints a LOGITS line = the last token's
+logits [V] from RoNet's forward on a fixed prompt), reimplements the same
+forward pass in numpy (RMSNorm + RoPE + GQA attention + SwiGLU), and reports the
+worst-case deviation. Supports both HF LlamaForCausalLM and llama2.c checkpoint
+naming, and the sliced imports produced by `--layers` / `--vocab`.
 
 Usage:
-    python3 tools/pt2ronet_check.py [--luau .tools/luau]
+    python3 tools/pt2ronet_check.py
+      [--safetensors path] [--config path] [--entry tests/_exp_....luau]
+      [--layers N] [--vocab V] [--prompt ronet,ids] [--luau .tools/luau]
 """
 
 import argparse
@@ -20,8 +22,19 @@ import sys
 
 import numpy as np
 
-FIXTURE = "tests/fixtures/pt_tiny"
-PROMPT = list(range(1, 9))  # token ids 1..8
+# llama2.c-style tensor names (stories15M lineage). HF names are formed by the
+# generic mapping further down.
+WQ = "layers.{}.attention.wq.weight"
+WK = "layers.{}.attention.wk.weight"
+WV = "layers.{}.attention.wv.weight"
+WO = "layers.{}.attention.wo.weight"
+W1 = "layers.{}.feed_forward.w1.weight"
+W2 = "layers.{}.feed_forward.w2.weight"
+W3 = "layers.{}.feed_forward.w3.weight"
+AN = "layers.{}.attention_norm.weight"
+FN = "layers.{}.ffn_norm.weight"
+NORM = "norm.weight"
+OUT = "output.weight"
 
 
 def load_tensor(path, key):
@@ -37,11 +50,49 @@ def load_tensor(path, key):
     return np.frombuffer(data, dtype="<f4", count=count, offset=begin).reshape(m["shape"]).astype(np.float64)
 
 
-def reference_logits(safetensors):
+def reference_logits(safetensors, cfg, layers, vocab, prompt):
     T_ = lambda k: load_tensor(safetensors, k)
-    C, nb, kv, hd = 16, 4, 2, 4
-    eps, base = 1e-5, 10000.0
-    ids = np.array(PROMPT)
+    C = cfg.get("dim", cfg.get("hidden_size"))
+    nb = cfg.get("n_heads", cfg.get("num_attention_heads"))
+    kv = cfg.get("n_kv_heads", cfg.get("num_key_value_heads", nb))
+    hd = cfg.get("head_dim", C // nb)
+    eps = cfg.get("norm_eps", cfg.get("rms_norm_eps", 1e-5))
+    base = cfg.get("rope_theta", 10000.0)
+
+    is_llama2c = False
+    try:
+        T_(WQ.format(0))
+        is_llama2c = True
+    except KeyError:
+        is_llama2c = False
+
+    if is_llama2c:
+        F = {  # llama2.c (stories15M lineage)
+            "q": WQ, "k": WK, "v": WV, "o": WO,
+            "g": W1, "u": W3, "d": W2,  # gate/up/down
+            "an": AN, "fn": FN, "norm": NORM,
+        }
+        emb_key, lm_key = OUT, OUT
+    else:  # HF LlamaForCausalLM
+        F = {
+            "q": "model.layers.{}.self_attn.q_proj.weight",
+            "k": "model.layers.{}.self_attn.k_proj.weight",
+            "v": "model.layers.{}.self_attn.v_proj.weight",
+            "o": "model.layers.{}.self_attn.o_proj.weight",
+            "g": "model.layers.{}.mlp.gate_proj.weight",
+            "u": "model.layers.{}.mlp.up_proj.weight",
+            "d": "model.layers.{}.mlp.down_proj.weight",
+            "an": "model.layers.{}.input_layernorm.weight",
+            "fn": "model.layers.{}.post_attention_layernorm.weight",
+            "norm": "model.norm.weight",
+        }
+        emb_key, lm_key = "model.embed_tokens.weight", "lm_head.weight"
+        try:
+            T_(lm_key)
+        except KeyError:
+            lm_key = emb_key  # tied HF checkpoints may omit lm_head.weight
+
+    ids = np.array(prompt)
     Tseq = len(ids)
 
     def rmsnorm(x, g):
@@ -60,17 +111,17 @@ def reference_logits(safetensors):
     def silu(z):
         return z * (1 / (1 + np.exp(-z)))
 
-    x = T_("model.embed_tokens.weight")[ids - 1]  # RoNet ids are 1-based
-    for i in range(2):
-        Wq = T_(f"model.layers.{i}.self_attn.q_proj.weight").T
-        Wk = T_(f"model.layers.{i}.self_attn.k_proj.weight").T
-        Wv = T_(f"model.layers.{i}.self_attn.v_proj.weight").T
-        Wo = T_(f"model.layers.{i}.self_attn.o_proj.weight").T
-        W1 = T_(f"model.layers.{i}.mlp.gate_proj.weight").T
-        W2 = T_(f"model.layers.{i}.mlp.up_proj.weight").T
-        W3 = T_(f"model.layers.{i}.mlp.down_proj.weight").T
+    x = T_(emb_key)[ids - 1]  # RoNet ids are 1-based
+    for i in range(layers):
+        Wq = T_(F["q"].format(i)).T
+        Wk = T_(F["k"].format(i)).T
+        Wv = T_(F["v"].format(i)).T
+        Wo = T_(F["o"].format(i)).T
+        W1_ = T_(F["g"].format(i)).T
+        W2_ = T_(F["d"].format(i)).T
+        W3_ = T_(F["u"].format(i)).T
 
-        xn = rmsnorm(x, T_(f"model.layers.{i}.input_layernorm.weight"))
+        xn = rmsnorm(x, T_(F["an"].format(i)))
         Q = rope((xn @ Wq).reshape(Tseq, nb, hd).transpose(1, 0, 2), np.arange(Tseq))
         K = rope((xn @ Wk).reshape(Tseq, kv, hd).transpose(1, 0, 2), np.arange(Tseq))
         Vx = (xn @ Wv).reshape(Tseq, kv, hd).transpose(1, 0, 2)
@@ -82,39 +133,49 @@ def reference_logits(safetensors):
         P = e / e.sum(axis=-1, keepdims=True)
         x = x + (P @ Vx).transpose(1, 0, 2).reshape(Tseq, nb * hd) @ Wo
 
-        hx = rmsnorm(x, T_(f"model.layers.{i}.post_attention_layernorm.weight"))
-        x = x + (silu(hx @ W1) * (hx @ W2)) @ W3
+        hx = rmsnorm(x, T_(F["fn"].format(i)))
+        x = x + (silu(hx @ W1_) * (hx @ W3_)) @ W2_
 
-    x = rmsnorm(x, T_("model.norm.weight"))
-    return x @ T_("model.embed_tokens.weight").T
+    x = rmsnorm(x, T_(F["norm"]))
+    logits = x @ T_(lm_key).T  # [Tseq, vocab]
+    return logits[-1][:vocab]
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--luau", default=os.path.join(".tools", "luau"))
-    ap.add_argument("--fixture", default=FIXTURE)
+    ap.add_argument("--safetensors", default=os.path.join(FIXTURE_DEFAULT, "model.safetensors"))
+    ap.add_argument("--config", default=None)
+    ap.add_argument("--entry", default="tests/_exp_pt_import.luau")
+    ap.add_argument("--layers", type=int, default=None)
+    ap.add_argument("--vocab", type=int, default=None)
+    ap.add_argument("--prompt", default="1,2,3,4,5,6,7,8")
     args = ap.parse_args()
 
-    ref = reference_logits(os.path.join(args.fixture, "model.safetensors"))
+    cfg_path = args.config or (os.path.dirname(args.safetensors) + "/config.json")
+    with open(cfg_path) as f:
+        cfg = json.load(f)
+    layers = args.layers if args.layers is not None else cfg.get("n_layers", cfg.get("num_hidden_layers"))
+    vocab = args.vocab if args.vocab is not None else cfg.get("vocab_size")
+    prompt = [int(v) for v in args.prompt.split(",")]
 
-    proc = subprocess.run(
-        [args.luau, "tests/_exp_pt_import.luau"],
-        capture_output=True,
-        text=True,
-    )
+    ref = reference_logits(args.safetensors, cfg, layers, vocab, prompt)
+
+    proc = subprocess.run([args.luau, args.entry], capture_output=True, text=True)
     if proc.returncode != 0:
         sys.exit("luau failed:\n" + proc.stderr)
     line = next((l for l in proc.stdout.splitlines() if l.startswith("LOGITS ")), None)
     if line is None:
-        sys.exit("no LOGITS line in output:\n" + proc.stdout)
-    got = np.array([float(v) for v in line[len("LOGITS "):].split()], dtype=np.float64).reshape(ref.shape)
+        sys.exit("no LOGITS line in output:\n" + proc.stdout[-2000:])
+    got = np.array([float(v) for v in line[len("LOGITS "):].split()], dtype=np.float64)
+    if got.size != ref.size:
+        sys.exit(f"size mismatch: got {got.size} logits, reference {ref.size}")
 
     diff = np.abs(got - ref)
     scale = np.maximum(1.0, np.abs(ref))
     worst = float(diff.max())
     worst_rel = float((diff / scale).max())
-    n = int(diff.size)
-    print(f"numpy reference shape: {ref.shape}, {n} logits")
+    print(f"numpy reference: {ref.shape}, {ref.size} logits (last token)")
     print(f"max abs  deviation: {worst:.3e}")
     print(f"max rel  deviation: {worst_rel:.3e}")
     if worst_rel < 1e-3:
@@ -123,6 +184,8 @@ def main():
     print("MISMATCH: RoNet forward disagrees with the numpy reference")
     return 1
 
+
+FIXTURE_DEFAULT = "tests/fixtures/pt_tiny"
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -48,6 +48,7 @@ function sidebar() {
         { text: 'Quick start', link: '/guide/quickstart' },
         { text: 'Roblox port', link: '/guide/roblox' },
         { text: 'PyTorch import', link: '/guide/ptimport' },
+        { text: 'TinyStories example', link: '/guide/tinystories' },
       ],
     },
     ...groups.map((g) => ({
@@ -78,6 +79,7 @@ const base = {
       { text: 'Guide', link: '/guide/quickstart' },
       { text: 'Roblox', link: '/guide/roblox' },
       { text: 'PyTorch import', link: '/guide/ptimport' },
+      { text: 'TinyStories', link: '/guide/tinystories' },
       { text: 'API', link: '/api/' },
     ],
     sidebar: sidebar(),

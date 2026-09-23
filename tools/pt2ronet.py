@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert an HF Llama-style safetensors checkpoint into a RoNet weight module.
+"""Convert a Llama-style safetensors checkpoint into a RoNet weight module.
 
 Reads a `model.safetensors` + `config.json`, applies RoNet's parameter ordering
 and [in, out] matrix convention (every linear weight is transposed vs PyTorch),
@@ -7,16 +7,26 @@ and emits a self-contained Luau module:
 
     return {
         cfg = { C = ..., numBlocks = ..., ... },   -- exact RoNet Transformer cfg
-        weights = [[                                 -- Serialize.dump format
+        weights = [[                             -- Serialize.dump format
 shape=...; ...
         ]],
     }
 
 Usage:
     python3 tools/pt2ronet.py model.safetensors \\
-        [--config config.json] [--out weights.luau] [--max-seq 4096]
+        [--config config.json] [--out weights.luau] [--max-seq 4096] \\
+        [--layers N] [--vocab V]
 
-On the RoNet side:
+Architectures (auto-detected from config.json):
+    llama   HF LlamaForCausalLM naming (embed_tokens/layers.N/self_attn/mlp/...)
+    llama2c llama2.c naming (attention_norm/ffn_norm/feed_forward.w1..w3) --
+            the layout used by the TinyStories-15M / stories15M checkpoints.
+            A missing tok_embeddings with only `output.weight` is handled as
+            tied embeddings (the shared table is emitted once).
+
+--layers N keeps only the first N transformer blocks; --vocab V slices the
+embedding/lm-head rows to [0, V). Both keep genuine weights for a portable
+demo. On the RoNet side:
 
     local W = require(path.to.weights)
     local model = deps.Transformer.new("pt", W.cfg, rng)
@@ -45,7 +55,7 @@ def read_safetensors(path):
 def load_tensors(header, data):
     out = {}
     for key, meta in header.items():
-        if not isinstance(meta, dict):
+        if not isinstance(meta, dict) or "shape" not in meta:
             continue
         count = 1
         for d in meta["shape"]:
@@ -56,36 +66,57 @@ def load_tensors(header, data):
 
 
 def roNet_cfg(cfg, max_seq_arg):
-    nb = int(cfg["num_attention_heads"])
-    C = int(cfg["hidden_size"])
-    kv = int(cfg.get("num_key_value_heads", nb))
-    hd = int(cfg.get("head_dim", C // nb))
-    max_seq = (
-        max_seq_arg
-        if max_seq_arg is not None
-        else int(cfg.get("original_max_position_embeddings", cfg.get("max_position_embeddings", 2048)))
-    )
+    if "hidden_size" in cfg:
+        # --- HF LlamaForCausalLM ---
+        nb = int(cfg["num_attention_heads"])
+        C = int(cfg["hidden_size"])
+        kv = int(cfg.get("num_key_value_heads", nb))
+        hd = int(cfg.get("head_dim", C // nb))
+        max_seq = max_seq_arg if max_seq_arg is not None else int(
+            cfg.get("original_max_position_embeddings", cfg.get("max_position_embeddings", 2048))
+        )
+        return {
+            "arch": "llama",
+            "C": C,
+            "numBlocks": int(cfg["num_hidden_layers"]),
+            "nbHeads": nb,
+            "kvHeads": kv,
+            "headDim": hd,
+            "ffnHidden": int(cfg["intermediate_size"]),
+            "vocab": int(cfg["vocab_size"]),
+            "maxSeq": max_seq,
+            "tieEmbeds": bool(cfg.get("tie_word_embeddings", True)),
+            "ropeBase": float(cfg.get("rope_theta", 10000.0)),
+            "rmsEps": float(cfg.get("rms_norm_eps", 1e-6)),
+        }
+    # --- llama2.c --- (karpathy TinyStories-15M family: dim/n_layers/n_heads)
+    nb = int(cfg["n_heads"])
+    C = int(cfg["dim"])
+    kv = int(cfg.get("n_kv_heads", nb))
+    hd = C // nb
     return {
+        "arch": "llama2c",
         "C": C,
-        "numBlocks": int(cfg["num_hidden_layers"]),
+        "numBlocks": int(cfg["n_layers"]),
         "nbHeads": nb,
         "kvHeads": kv,
         "headDim": hd,
-        "ffnHidden": int(cfg["intermediate_size"]),
+        "ffnHidden": -1,  # filled from w1 rows after loading
         "vocab": int(cfg["vocab_size"]),
-        "maxSeq": max_seq,
-        "tieEmbeds": bool(cfg.get("tie_word_embeddings", True)),
+        "maxSeq": max_seq_arg if max_seq_arg is not None else int(cfg.get("max_seq_len", 256)),
+        "tieEmbeds": True,  # llama2.c packs a single shared vocab table
         "ropeBase": float(cfg.get("rope_theta", 10000.0)),
-        "rmsEps": float(cfg.get("rms_norm_eps", 1e-6)),
+        "rmsEps": float(cfg.get("norm_eps", 1e-5)),
     }
 
 
 def serialize_line(arr):
+    # float32 has at most ~9 significant decimal digits; %.9g round-trips an
+    # f32 through float64 exactly and keeps the generated weight text compact.
+    vals = " ".join(format(float(v), ".9g") for v in arr.ravel())
     if arr.ndim == 1:
-        head = f"shape={arr.shape[0]}; "
-    else:
-        head = f"shape={arr.shape[0]},{arr.shape[1]}; "
-    return head + " ".join(repr(float(v)) for v in arr.ravel())
+        return f"shape={arr.shape[0]}; {vals}"
+    return f"shape={arr.shape[0]},{arr.shape[1]}; {vals}"
 
 
 def main():
@@ -98,6 +129,12 @@ def main():
     ap.add_argument(
         "--max-seq", type=int, default=None, help="context length for RoPE tables (default: config or 2048)"
     )
+    ap.add_argument(
+        "--layers", type=int, default=None, help="keep only the first N transformer blocks"
+    )
+    ap.add_argument(
+        "--vocab", type=int, default=None, help="slice embedding/lm-head rows to [0, V)"
+    )
     args = ap.parse_args()
 
     cfg_path = args.config or (args.safetensors.rsplit("/", 1)[0] + "/config.json")
@@ -109,48 +146,99 @@ def main():
     header, data = read_safetensors(args.safetensors)
     tensors = load_tensors(header, data)
 
-    C, kv, nb, hd, ffn, vocab = rc["C"], rc["kvHeads"], rc["nbHeads"], rc["headDim"], rc["ffnHidden"], rc["vocab"]
-    expect = {"model.embed_tokens.weight": [vocab, C], "model.norm.weight": [C]}
-    for i in range(rc["numBlocks"]):
-        expect[f"model.layers.{i}.input_layernorm.weight"] = [C]
-        expect[f"model.layers.{i}.post_attention_layernorm.weight"] = [C]
-        expect[f"model.layers.{i}.self_attn.q_proj.weight"] = [hd * nb, C]
-        expect[f"model.layers.{i}.self_attn.k_proj.weight"] = [hd * kv, C]
-        expect[f"model.layers.{i}.self_attn.v_proj.weight"] = [hd * kv, C]
-        expect[f"model.layers.{i}.self_attn.o_proj.weight"] = [C, hd * nb]
-        expect[f"model.layers.{i}.mlp.gate_proj.weight"] = [ffn, C]
-        expect[f"model.layers.{i}.mlp.up_proj.weight"] = [ffn, C]
-        expect[f"model.layers.{i}.mlp.down_proj.weight"] = [C, ffn]
+    if rc["arch"] == "llama":
+        TPL = {
+            "input_layernorm": "model.layers.%d.input_layernorm.weight",
+            "post_attention_layernorm": "model.layers.%d.post_attention_layernorm.weight",
+            "q_proj": "model.layers.%d.self_attn.q_proj.weight",
+            "k_proj": "model.layers.%d.self_attn.k_proj.weight",
+            "v_proj": "model.layers.%d.self_attn.v_proj.weight",
+            "o_proj": "model.layers.%d.self_attn.o_proj.weight",
+            "gate_proj": "model.layers.%d.mlp.gate_proj.weight",
+            "up_proj": "model.layers.%d.mlp.up_proj.weight",
+            "down_proj": "model.layers.%d.mlp.down_proj.weight",
+        }
+        final_norm = "model.norm.weight"
+        embed_key = "model.embed_tokens.weight"
+        lm_key = "lm_head.weight"
+    else:
+        TPL = {
+            "input_layernorm": "layers.%d.attention_norm.weight",
+            "post_attention_layernorm": "layers.%d.ffn_norm.weight",
+            "q_proj": "layers.%d.attention.wq.weight",
+            "k_proj": "layers.%d.attention.wk.weight",
+            "v_proj": "layers.%d.attention.wv.weight",
+            "o_proj": "layers.%d.attention.wo.weight",
+            "gate_proj": "layers.%d.feed_forward.w1.weight",
+            "up_proj": "layers.%d.feed_forward.w3.weight",
+            "down_proj": "layers.%d.feed_forward.w2.weight",
+        }
+        final_norm = "norm.weight"
+        embed_key = "tok_embeddings.weight"
+        lm_key = "output.weight"
+
+    C, kv, nb, hd = rc["C"], rc["kvHeads"], rc["nbHeads"], rc["headDim"]
+    vocab = rc["vocab"]
+    ffn = rc["ffnHidden"]
+    if ffn < 0:
+        ffn = tensors[TPL["gate_proj"] % 0].shape[0]  # llama2.c: w1 rows
+        rc["ffnHidden"] = ffn
+
+    # Optional genuine-weight slicing for a portable demo.
+    n_blocks = args.layers if args.layers is not None else rc["numBlocks"]
+    if n_blocks > rc["numBlocks"] or n_blocks <= 0:
+        sys.exit(f"--layers {n_blocks} out of range [1, {rc['numBlocks']}]")
+    rc["numBlocks"] = n_blocks
+    if args.vocab is not None:
+        if args.vocab > vocab or args.vocab <= 0:
+            sys.exit(f"--vocab {args.vocab} out of range [1, {vocab}]")
+        vocab = args.vocab
+        rc["vocab"] = vocab
+
+    expect = {embed_key: [vocab, C], final_norm: [C]}
+    for i in range(n_blocks):
+        expect[TPL["input_layernorm"] % i] = [C]
+        expect[TPL["post_attention_layernorm"] % i] = [C]
+        expect[TPL["q_proj"] % i] = [hd * nb, C]
+        expect[TPL["k_proj"] % i] = [hd * kv, C]
+        expect[TPL["v_proj"] % i] = [hd * kv, C]
+        expect[TPL["o_proj"] % i] = [C, hd * nb]
+        expect[TPL["gate_proj"] % i] = [ffn, C]
+        expect[TPL["up_proj"] % i] = [ffn, C]
+        expect[TPL["down_proj"] % i] = [C, ffn]
 
     missing = [k for k in expect if k not in tensors]
+    # Tied checkpoints may ship the shared table under the lm-head name only
+    # (llama2.c `output.weight`: no tok_embeddings tensor at all), or exclude
+    # lm_head.weight because it is the embedding table.
+    shared_from_lm = tie and lm_key in tensors and embed_key not in tensors
     if tie:
-        missing = [k for k in missing if k != "lm_head.weight"]
+        missing = [k for k in missing if k not in (embed_key, lm_key)]
+    elif shared_from_lm or lm_key not in expect:
+        missing = [k for k in missing if k != lm_key]
     if missing:
         sys.exit("missing tensors: " + ", ".join(sorted(missing)))
     for k, shp in expect.items():
-        if k in tensors and list(tensors[k].shape) != shp:
-            sys.exit(f"shape mismatch {k}: {list(tensors[k].shape)} != {shp}")
+        t = tensors.get(k)
+        if t is not None and list(t.shape) != shp:
+            sys.exit(f"shape mismatch {k}: {list(t.shape)} != {shp}")
 
-    lm = tensors.get("lm_head.weight", tensors["model.embed_tokens.weight"]) if tie else tensors.get("lm_head.weight")
+    if tie:
+        lm = tensors.get(lm_key, tensors.get(embed_key))
+    else:
+        lm = tensors.get(lm_key)
+        if lm is None:
+            sys.exit("embeddings are untied but lm_head.weight missing")
     if lm is None:
-        sys.exit("tie_word_embeddings=false but lm_head.weight missing")
+        sys.exit("no lm_head or embedding table found")
 
-    TPL = {
-        "input_layernorm": "model.layers.%d.input_layernorm.weight",
-        "post_attention_layernorm": "model.layers.%d.post_attention_layernorm.weight",
-        "q_proj": "model.layers.%d.self_attn.q_proj.weight",
-        "k_proj": "model.layers.%d.self_attn.k_proj.weight",
-        "v_proj": "model.layers.%d.self_attn.v_proj.weight",
-        "o_proj": "model.layers.%d.self_attn.o_proj.weight",
-        "gate_proj": "model.layers.%d.mlp.gate_proj.weight",
-        "up_proj": "model.layers.%d.mlp.up_proj.weight",
-        "down_proj": "model.layers.%d.mlp.down_proj.weight",
-    }
+    table = lm[:vocab]
+
     # RoNet param order (matches Module.collectParams): per block the 9 tensors,
     # then the lm-head, final norm, embedding table. When tied, the lm-head IS
     # the embedding table, so it is emitted once (deduped), matching collectParams.
     lines = []
-    for i in range(rc["numBlocks"]):
+    for i in range(n_blocks):
         for part, do_t in (
             ("input_layernorm", False),
             ("q_proj", True), ("k_proj", True), ("v_proj", True), ("o_proj", True),
@@ -162,10 +250,10 @@ def main():
                 arr = arr.T
             lines.append(serialize_line(arr))
 
-    lines.append(serialize_line(lm))                      # lm-head (tied = embedding)
-    lines.append(serialize_line(tensors["model.norm.weight"]))
+    lines.append(serialize_line(table))                      # lm-head (tied = embedding)
+    lines.append(serialize_line(tensors[final_norm]))
     if not tie:
-        lines.append(serialize_line(tensors["model.embed_tokens.weight"]))
+        lines.append(serialize_line(tensors[embed_key][:vocab]))
 
     cfg_lines = ["\tcfg = {"]
     for k in ("C", "numBlocks", "nbHeads", "kvHeads", "headDim", "ffnHidden", "vocab", "maxSeq"):

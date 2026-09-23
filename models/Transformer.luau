@@ -118,9 +118,11 @@ return function(deps: any)
 	end
 
 	-- Autoregressive sampling. seed: {number} prompt ids. Appends nTokens new ids.
-	-- opts: { temperature?, topK?, cache? }. Uses the model's rng for non-greedy
-	-- picks. cache defaults to true (KV-cache decode); set cache=false to replay
-	-- a full forward per token (useful for parity checks).
+	-- opts: { temperature?, topK?, cache?, onToken? }. Uses the model's rng for
+	-- non-greedy picks. cache defaults to true (KV-cache decode); set cache=false
+	-- to replay a full forward per token (useful for parity checks). onToken,
+	-- when provided, is called as onToken(rid, step) right after each sampled id
+	-- for streaming output.
 	function Transformer.generate(self: any, seed: { number }, nTokens: number, opts: any?): { number }
 		local o = opts or {}
 		local temp = o.temperature or 1.0
@@ -179,10 +181,12 @@ return function(deps: any)
 		end
 
 		if o.cache == false then
-			for _ = 1, nTokens do
+			for step = 1, nTokens do
 				local logits = self:forward(ids) -- [T, V]
 				local Tn = #ids
-				table.insert(ids, pickFrom(logits.data, (Tn - 1) * V))
+				local pick = pickFrom(logits.data, (Tn - 1) * V)
+				table.insert(ids, pick)
+				if o.onToken then o.onToken(pick, step) end
 			end
 			if needsEval then self:train() end
 			return ids
@@ -208,11 +212,12 @@ return function(deps: any)
 			x = self.normF.forward(self.normF, x) -- [1, 1, C]
 		end
 		local pos = #seed
-		for _ = 1, nTokens do
+		for step = 1, nTokens do
 			local flat = Tensor.reshape(x, { 1, self.C })
 			local logits = Tensor.matmul(flat, lmHeadT) -- [1, V]
 			local pick = pickFrom(logits.data, 0)
 			table.insert(ids, pick)
+			if o.onToken then o.onToken(pick, step) end
 			pos += 1
 			x = self.emb.forward(self.emb, { pick }) -- [1, C]
 			x = Tensor.reshape(x, { 1, 1, self.C })

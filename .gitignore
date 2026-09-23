@@ -19,3 +19,6 @@ build/rbxm/target/
 # Python
 __pycache__/
 *.pyc
+
+# Generated TinyStories checkpoint fixtures (regenerate via tools/pt2ronet.py)
+tests/fixtures/tinystories15m*.weights.luau

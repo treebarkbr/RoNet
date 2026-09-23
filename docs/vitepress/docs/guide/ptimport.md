@@ -50,6 +50,7 @@ from its header/metadata layout (no `safetensors` package needed).
 
 ```
 usage: pt2ronet.py [-h] [--config CONFIG] [--out OUT] [--max-seq MAX_SEQ]
+                   [--layers LAYERS] [--vocab VOCAB]
                    safetensors
 ```
 
@@ -59,6 +60,19 @@ usage: pt2ronet.py [-h] [--config CONFIG] [--out OUT] [--max-seq MAX_SEQ]
 | `--config` | sibling `config.json` | Path to the model config. |
 | `--out` | stdout | Output `.luau` path. |
 | `--max-seq` | derived from config, else 2048 | Context length for the precomputed RoPE tables. |
+| `--layers` | all blocks | Keep only the first N decoder blocks (genuine weight slice). |
+| `--vocab` | config vocab | Slice the embedding / lm-head rows to `[0, V)` (genuine weight slice). |
+
+Both HF `LlamaForCausalLM` (`model.layers.N....`) and llama2.c
+(`layers.N.attention_norm` / `attention.w{q,k,v,o}` / `feed_forward.w{1,2,3}`,
+tied to `output.weight`) checkpoint namings are recognized automatically. Verify
+an import from either family against an independent numpy forward pass with:
+
+```sh
+python3 tools/pt2ronet_check.py \
+  --safetensors model.safetensors --config config.json \
+  --layers N --vocab V --entry tests/_smoke_pt.luau
+```
 
 ## Config mapping
 

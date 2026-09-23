@@ -1,8 +1,8 @@
 --!strict
 -- PyTorch import semantic check: forward the imported tiny checkpoint and print
--- the logits so tools/pt2ronet_check.py can compare them against an independent
--- numpy reference implementation of the same checkpoint. NOT part of run_all.sh.
--- ENTRY script; composes the DI graph (mirrors RoNet.luau).
+-- the LAST token's logits so tools/pt2ronet_check.py can compare them against
+-- an independent numpy reference implementation of the same checkpoint.
+-- NOT part of run_all.sh. ENTRY script; composes the DI graph (mirrors RoNet.luau).
 local Util = require("../core/Util")
 local PRNG = require("../core/PRNG")
 local Tensor = require("../core/Tensor")
@@ -43,8 +43,10 @@ deps.Serialize.load(deps.Module.collectParams(model), W.weights)
 
 local ids = { 1, 2, 3, 4, 5, 6, 7, 8 }
 local logits = model:forward(ids)
-local parts = table.create(#logits.data)
-for i = 1, #logits.data do
-	parts[i] = string.format("%.9g", logits.data[i])
+local V = W.cfg.vocab
+local base = (#ids - 1) * V
+local parts = table.create(V)
+for v = 1, V do
+	parts[v] = string.format("%.9g", logits.data[base + v])
 end
 print("LOGITS " .. table.concat(parts, " "))
